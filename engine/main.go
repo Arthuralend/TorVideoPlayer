@@ -87,6 +87,7 @@ type server struct {
 	client  *torrent.Client
 	mu      sync.Mutex
 	samples map[metainfo.Hash]*speedSample
+	mkv     map[string]*mkvEntry
 }
 
 func main() {
@@ -128,7 +129,7 @@ func main() {
 		}
 	}
 
-	s := &server{client: client, samples: map[metainfo.Hash]*speedSample{}}
+	s := &server{client: client, samples: map[metainfo.Hash]*speedSample{}, mkv: map[string]*mkvEntry{}}
 	go s.sampleSpeeds()
 
 	mux := http.NewServeMux()
@@ -138,6 +139,8 @@ func main() {
 	mux.HandleFunc("/api/status/", s.handleStatus)
 	mux.HandleFunc("/api/drop/", s.handleDrop)
 	mux.HandleFunc("/stream/", s.handleStream)
+	mux.HandleFunc("/api/mkv/tracks", s.handleMKVTracks)
+	mux.HandleFunc("/api/mkv/cues", s.handleMKVCues)
 
 	ln, err := net.Listen("tcp", *httpAddr)
 	if err != nil {

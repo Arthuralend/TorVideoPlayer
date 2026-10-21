@@ -13,12 +13,16 @@ struct SubtitleFileOption: Identifiable, Hashable {
     let url: URL
 }
 
-/// Where a subtitle slot takes its text from. Embedded tracks are drawn by
-/// VLC itself (only one at a time); text files are drawn by our overlay, so
-/// any combination of "embedded + file" or "file + file" works.
+/// Where a subtitle slot takes its text from.
+/// - `stream`: a text track inside the MKV, read by the engine and drawn by
+///   our overlay, so any two of them can be shown at once;
+/// - `file`: an external .srt/.ass/.vtt file, also drawn by the overlay;
+/// - `embedded`: a track drawn by VLC itself (only one at a time) — used for
+///   formats the engine can't read (MP4 text, PGS/VobSub pictures).
 enum SubtitleSource: Hashable {
     case off
     case embedded(Int32)
+    case stream(UInt64)
     case file(String)
 }
 
@@ -56,6 +60,7 @@ final class PlayerController: ObservableObject {
     @Published private(set) var currentAudioTrack: Int32 = -1
     @Published private(set) var embeddedSubtitles: [TrackOption] = []
     @Published private(set) var subtitleFiles: [SubtitleFileOption] = []
+    @Published private(set) var streamTracks: [MKVTrack] = []
     @Published private(set) var primarySource: SubtitleSource = .off
     @Published private(set) var secondarySource: SubtitleSource = .off
     @Published var primaryDelay: Double = 0 { didSet { applyEmbeddedDelay(); refreshSubtitleText() } }
@@ -79,6 +84,13 @@ final class PlayerController: ObservableObject {
     private var userChoseSubtitles = false
     private var osdTask: Task<Void, Never>?
 
+    // Embedded MKV subtitles, fetched from the engine in time windows.
+    private var mediaSource: MediaSource?
+    private var mediaGeneration = 0
+    private var liveTracks: [UInt64: SubtitleTrack] = [:]
+    private var liveCoverage: [UInt64: ClosedRange<Double>] = [:]
+    private var liveLoading: Set<UInt64> = []
+
     init() {
         videoView.backColor = .black
         videoView.fillScreen = false
@@ -97,10 +109,16 @@ final class PlayerController: ObservableObject {
 
     // MARK: Playback
 
-    func open(url: URL, title: String, subtitleCandidates: [SubtitleFileOption]) {
+    func open(url: URL, title: String, subtitleCandidates: [SubtitleFileOption], source: MediaSource? = nil) {
         stop()
         self.title = title
         subtitleFiles = subtitleCandidates
+        mediaGeneration += 1
+        mediaSource = source
+        streamTracks = []
+        liveTracks = [:]
+        liveCoverage = [:]
+        liveLoading = []
         parsedTracks = [:]
         primarySource = .off
         secondarySource = .off
@@ -136,6 +154,17 @@ final class PlayerController: ObservableObject {
         hasMedia = true
         startTicking()
         autoSelectSubtitles()
+        if let source { loadStreamTracks(source) }
+    }
+
+    private func loadStreamTracks(_ source: MediaSource) {
+        let generation = mediaGeneration
+        Task {
+            guard let tracks = try? await TorrentEngine.shared.mkvTracks(source),
+                  generation == mediaGeneration else { return }
+            streamTracks = tracks.filter(\.text)
+            autoSelectSubtitles()
+        }
     }
 
     func stop() {
@@ -169,6 +198,7 @@ final class PlayerController: ObservableObject {
         timeMs = target
         stalledTicks = 0
         refreshSubtitleText()
+        updateLiveSubtitles()
     }
 
     func seek(fraction: Double) {
@@ -233,15 +263,23 @@ final class PlayerController: ObservableObject {
         refreshSubtitleText()
     }
 
+    /// VLC-rendered tracks are only offered when the engine couldn't read
+    /// all embedded tracks itself (non-MKV files, picture subtitles).
+    var vlcSubtitleOptions: [TrackOption] {
+        streamTracks.isEmpty || embeddedSubtitles.count > streamTracks.count ? embeddedSubtitles : []
+    }
+
     /// Options in menu order: off, embedded tracks, files.
     var allSubtitleSources: [SubtitleSource] {
-        [.off] + embeddedSubtitles.map { .embedded($0.id) } + subtitleFiles.map { .file($0.id) }
+        [.off] + streamTracks.map { .stream($0.number) } + vlcSubtitleOptions.map { .embedded($0.id) }
+            + subtitleFiles.map { .file($0.id) }
     }
 
     func name(of source: SubtitleSource) -> String {
         switch source {
         case .off: return "Выключены"
         case .embedded(let id): return embeddedSubtitles.first { $0.id == id }?.name ?? "Дорожка \(id)"
+        case .stream(let number): return streamTracks.first { $0.number == number }?.displayName ?? "Дорожка \(number)"
         case .file(let id): return subtitleFiles.first { $0.id == id }?.name ?? "Файл"
         }
     }
@@ -300,6 +338,11 @@ final class PlayerController: ObservableObject {
             if parsedTracks[id] == nil {
                 Task { await loadTrack(id: id, for: slot) }
             }
+        case .stream(let number):
+            let track = liveTracks[number] ?? SubtitleTrack(cues: [])
+            liveTracks[number] = track
+            set(source, track: track, for: slot)
+            updateLiveSubtitles()
         }
         syncVLCSubtitle()
         refreshSubtitleText()
@@ -374,33 +417,80 @@ final class PlayerController: ObservableObject {
         let lang1 = UserDefaults.standard.string(forKey: Prefs.subLang1) ?? "none"
         let lang2 = UserDefaults.standard.string(forKey: Prefs.subLang2) ?? "none"
 
-        var primary = bestMatch(language: lang1, allowEmbedded: true)
+        var primary = bestMatch(language: lang1, allowVLC: true)
         if primary == nil, mediaPlayer.currentVideoSubTitleIndex >= 0 {
-            // Keep the track VLC chose by default (the file's "default" flag).
-            primary = .embedded(mediaPlayer.currentVideoSubTitleIndex)
+            // Keep a track enabled when the file asks for one by default.
+            if let track = streamTracks.first(where: { $0.isDefault && !$0.forced }) ?? streamTracks.first {
+                primary = .stream(track.number)
+            } else if !vlcSubtitleOptions.isEmpty {
+                primary = .embedded(mediaPlayer.currentVideoSubTitleIndex)
+            }
         }
-        var primaryIsEmbedded = false
-        if case .embedded = primary { primaryIsEmbedded = true }
-        var secondary = bestMatch(language: lang2, allowEmbedded: !primaryIsEmbedded)
+        var primaryIsVLC = false
+        if case .embedded = primary { primaryIsVLC = true }
+        var secondary = bestMatch(language: lang2, allowVLC: !primaryIsVLC)
         if secondary == primary { secondary = nil }
 
         if let primary, primary != primarySource { apply(primary, to: .primary) }
         if let secondary, secondary != secondarySource { apply(secondary, to: .secondary) }
     }
 
-    private func bestMatch(language: String, allowEmbedded: Bool) -> SubtitleSource? {
+    private func bestMatch(language: String, allowVLC: Bool) -> SubtitleSource? {
         guard language != "none" else { return nil }
         func pick<T>(_ items: [T], name: (T) -> String) -> T? {
             let matching = items.filter { SubtitleLanguage.matches(name($0), code: language) }
             return matching.first { !SubtitleLanguage.isForced(name($0)) } ?? matching.first
         }
-        if allowEmbedded, let track = pick(embeddedSubtitles, name: { $0.name }) {
+        if let track = pick(streamTracks.filter { !$0.forced }, name: { $0.matchText }) {
+            return .stream(track.number)
+        }
+        if allowVLC, let track = pick(vlcSubtitleOptions, name: { $0.name }) {
             return .embedded(track.id)
         }
         if let file = pick(subtitleFiles, name: { $0.name }) {
             return .file(file.id)
         }
         return nil
+    }
+
+    /// Keeps a window of embedded cues loaded around the playback position:
+    /// a fresh window after a seek, and the next one shortly before the
+    /// current window runs out.
+    private func updateLiveSubtitles() {
+        guard let source = mediaSource else { return }
+        var active: [UInt64] = []
+        for src in [primarySource, secondarySource] {
+            if case .stream(let number) = src, !active.contains(number) { active.append(number) }
+        }
+        let now = Double(timeMs) / 1000
+        for number in active where !liveLoading.contains(number) {
+            let window: ClosedRange<Double>
+            let extending: Bool
+            if let covered = liveCoverage[number], covered.contains(now) {
+                guard now > covered.upperBound - 20 else { continue }
+                window = covered.upperBound...(covered.upperBound + 90)
+                extending = true
+            } else {
+                window = max(0, now - 3)...(now + 45)
+                extending = false
+            }
+            if lengthMs > 0, window.lowerBound > Double(lengthMs) / 1000 { continue }
+            liveLoading.insert(number)
+            let generation = mediaGeneration
+            Task {
+                let result = try? await TorrentEngine.shared.mkvCues(source, tracks: [number], from: window.lowerBound, to: window.upperBound)
+                guard generation == mediaGeneration else { return }
+                liveLoading.remove(number)
+                guard let cues = result?[number] else { return }
+                liveTracks[number]?.merge(cues)
+                if extending, let covered = liveCoverage[number], covered.upperBound >= window.lowerBound {
+                    liveCoverage[number] = covered.lowerBound...window.upperBound
+                } else {
+                    liveCoverage[number] = window
+                }
+                refreshSubtitleText()
+            }
+        }
     }
 
     // MARK: Ticking
@@ -444,6 +534,7 @@ final class PlayerController: ObservableObject {
 
         tickCount += 1
         if tickCount % 10 == 1 { refreshTracks() }
+        if tickCount % 3 == 0 { updateLiveSubtitles() }
         refreshSubtitleText()
     }
 

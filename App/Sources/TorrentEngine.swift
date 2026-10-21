@@ -14,6 +14,48 @@ enum EngineError: LocalizedError {
     }
 }
 
+/// A file the engine can read embedded subtitles from.
+enum MediaSource: Hashable {
+    case torrent(infoHash: String, fileIndex: Int)
+    case local(path: String)
+
+    var queryItems: [URLQueryItem] {
+        switch self {
+        case .torrent(let infoHash, let fileIndex):
+            return [URLQueryItem(name: "ih", value: infoHash), URLQueryItem(name: "file", value: String(fileIndex))]
+        case .local(let path):
+            return [URLQueryItem(name: "path", value: path)]
+        }
+    }
+
+    static let matroskaExtensions: Set<String> = ["mkv", "mka", "mk3d", "webm"]
+}
+
+/// A subtitle track inside a Matroska file.
+struct MKVTrack: Codable, Hashable {
+    let number: UInt64
+    let codec: String
+    let language: String
+    let name: String
+    let isDefault: Bool
+    let forced: Bool
+    let text: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case number, codec, language, name, forced, text
+        case isDefault = "default"
+    }
+
+    var displayName: String {
+        let language = SubtitleLanguage.displayName(forCode: self.language)
+        let parts = [language, name].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Дорожка \(number)" : parts.joined(separator: " — ")
+    }
+
+    /// Text used for language matching.
+    var matchText: String { "\(language) \(name)" }
+}
+
 /// Runs the bundled Go helper (`torengine`) and talks to it over HTTP on
 /// 127.0.0.1. The helper downloads torrents and serves files with Range
 /// support, prioritising the pieces the player is reading right now.
@@ -152,6 +194,42 @@ final class TorrentEngine {
         var request = URLRequest(url: base.appendingPathComponent("api/drop/\(infoHash)"))
         request.httpMethod = "POST"
         _ = try? await session.data(for: request)
+    }
+
+    func mkvTracks(_ source: MediaSource) async throws -> [MKVTrack] {
+        struct Response: Decodable { let tracks: [MKVTrack] }
+        let url = try await apiURL("api/mkv/tracks", source.queryItems)
+        let response: Response = try await perform(URLRequest(url: url))
+        return response.tracks
+    }
+
+    /// Embedded subtitle cues of `tracks` visible between `from` and `to` seconds.
+    func mkvCues(_ source: MediaSource, tracks: [UInt64], from: Double, to: Double) async throws -> [UInt64: [SubtitleCue]] {
+        struct Cue: Decodable { let start: Double; let end: Double; let text: String }
+        struct Response: Decodable { let cues: [String: [Cue]] }
+        let items = source.queryItems + [
+            URLQueryItem(name: "tracks", value: tracks.map(String.init).joined(separator: ",")),
+            URLQueryItem(name: "from", value: String(format: "%.3f", from)),
+            URLQueryItem(name: "to", value: String(format: "%.3f", to)),
+        ]
+        let url = try await apiURL("api/mkv/cues", items)
+        let response: Response = try await perform(URLRequest(url: url))
+        var result: [UInt64: [SubtitleCue]] = [:]
+        for (key, cues) in response.cues {
+            guard let number = UInt64(key) else { continue }
+            result[number] = cues.compactMap { cue in
+                let text = SubtitleParser.clean(cue.text)
+                return text.isEmpty ? nil : SubtitleCue(start: cue.start, end: cue.end, text: text)
+            }
+        }
+        return result
+    }
+
+    private func apiURL(_ path: String, _ items: [URLQueryItem]) async throws -> URL {
+        let base = try await ensureStarted()
+        var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        components.queryItems = items
+        return components.url!
     }
 
     func streamURL(for file: TorrentFile) -> URL? {

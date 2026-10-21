@@ -9,10 +9,21 @@ struct SubtitleCue {
 /// A parsed text subtitle file, rendered by our own overlay so that two of
 /// them (or one plus an embedded VLC track) can be shown at once.
 final class SubtitleTrack {
-    let cues: [SubtitleCue]
+    private(set) var cues: [SubtitleCue]
 
     init(cues: [SubtitleCue]) {
         self.cues = cues.sorted { $0.start < $1.start }
+    }
+
+    /// Adds cues fetched for another time window, skipping duplicates.
+    func merge(_ newCues: [SubtitleCue]) {
+        var seen = Set(cues.map { "\($0.start)|\($0.text)" })
+        var added = false
+        for cue in newCues where seen.insert("\(cue.start)|\(cue.text)").inserted {
+            cues.append(cue)
+            added = true
+        }
+        if added { cues.sort { $0.start < $1.start } }
     }
 
     func text(at time: Double) -> String? {
@@ -199,6 +210,16 @@ enum SubtitleLanguage {
             .components(separatedBy: CharacterSet.letters.inverted)
             .filter { !$0.isEmpty }
         return tokens.contains { language.keys.contains($0) }
+    }
+
+    /// "rus" / "ru-RU" → "Русский"; unknown codes are returned as is.
+    static func displayName(forCode code: String) -> String {
+        let lower = code.lowercased()
+        let base = String(lower.split(separator: "-").first ?? Substring(lower))
+        if let language = all.first(where: { $0.code == base || $0.keys.contains(base) }) {
+            return language.name
+        }
+        return code == "und" ? "" : code
     }
 
     static func isForced(_ name: String) -> Bool {

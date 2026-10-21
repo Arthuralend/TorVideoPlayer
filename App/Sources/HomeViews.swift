@@ -8,10 +8,10 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 20) {
             Spacer(minLength: 20)
-            Image(systemName: "play.rectangle.on.rectangle.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(Color.accentColor)
-            Text("TorVideoPlayer")
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+            Text("VLC Torrent player")
                 .font(.largeTitle.bold())
             Text("Смотрите торренты онлайн — без ожидания полной загрузки")
                 .foregroundStyle(.secondary)

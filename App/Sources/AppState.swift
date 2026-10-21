@@ -164,14 +164,18 @@ final class AppState: ObservableObject {
     func play(file: TorrentFile) {
         guard let torrent = currentTorrent, let url = TorrentEngine.shared.streamURL(for: file) else { return }
         currentFile = file
-        player.open(url: url, title: file.name, subtitleCandidates: subtitleCandidates(for: file, in: torrent))
+        let source: MediaSource? = MediaSource.matroskaExtensions.contains(file.fileExtension)
+            ? .torrent(infoHash: torrent.infoHash, fileIndex: file.index) : nil
+        player.open(url: url, title: file.name, subtitleCandidates: subtitleCandidates(for: file, in: torrent), source: source)
         screen = .player
         startStatusPolling()
     }
 
     func playDirect(_ url: URL, title: String) {
         leaveCurrentTorrent()
-        player.open(url: url, title: title, subtitleCandidates: url.isFileURL ? localSubtitles(near: url) : [])
+        let source: MediaSource? = url.isFileURL && MediaSource.matroskaExtensions.contains(url.pathExtension.lowercased())
+            ? .local(path: url.path) : nil
+        player.open(url: url, title: title, subtitleCandidates: url.isFileURL ? localSubtitles(near: url) : [], source: source)
         screen = .player
     }
 

@@ -419,7 +419,7 @@ struct SubtitleSettingsView: View {
             }
             Toggle("Тёмная подложка под текстом", isOn: $subBackground)
 
-            Text("Встроенные дорожки рисует VLC (одну за раз), файлы .srt/.ass/.vtt — сам плеер, поэтому можно сочетать любые два варианта.\nКлавиши: S / D — переключить, Z / X и C / V — задержка ±0,1 с.")
+            Text("Можно включить любые две дорожки одновременно: встроенные в видео или файлы .srt/.ass/.vtt.\nКлавиши: S / D — переключить, Z / X и C / V — задержка ±0,1 с.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -435,9 +435,16 @@ struct SubtitleSettingsView: View {
                 set: { player.select($0, for: slot) }
             )) {
                 Text("Выключены").tag(SubtitleSource.off)
-                if !player.embeddedSubtitles.isEmpty {
+                if !player.streamTracks.isEmpty {
                     Section("Встроенные в видео") {
-                        ForEach(player.embeddedSubtitles) { track in
+                        ForEach(player.streamTracks, id: \.number) { track in
+                            Text(track.displayName).tag(SubtitleSource.stream(track.number))
+                        }
+                    }
+                }
+                if !player.vlcSubtitleOptions.isEmpty {
+                    Section(player.streamTracks.isEmpty ? "Встроенные в видео" : "Встроенные (через VLC)") {
+                        ForEach(player.vlcSubtitleOptions) { track in
                             Text(track.name).tag(SubtitleSource.embedded(track.id))
                         }
                     }

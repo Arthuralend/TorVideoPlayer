@@ -1,6 +1,6 @@
-# TorVideoPlayer
+# VLC Torrent player
 
-Плеер для macOS, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
+**VLC Torrent player** — плеер для macOS, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
 
 ![icon](App/Resources/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png)
 
@@ -10,8 +10,8 @@
 - **Стриминг во время загрузки**: в первую очередь качаются куски файла, которые сейчас смотрит плеер. Перемотка работает сразу — загрузка переключается на новую позицию.
 - **VLC внутри**: MKV, AVI, MP4, HEVC/H.265, AC3/DTS, несколько звуковых дорожек — всё, что умеет VLC.
 - **Двойные субтитры**: одновременно две дорожки (например, английские + русские для изучения языка):
-  - встроенные в видео дорожки (рисует VLC) + внешние файлы `.srt / .ass / .ssa / .vtt` (рисует сам плеер);
-  - или два внешних файла одновременно;
+  - любые две дорожки, встроенные в MKV (текстовые SRT/ASS/WebVTT читаются прямо из торрента рядом с позицией просмотра), и/или внешние файлы `.srt / .ass / .ssa / .vtt`;
+  - для форматов, которые движок не читает (субтитры в MP4, картинки PGS/VobSub), — дорожка через VLC;
   - субтитры из самого торрента подхватываются автоматически (в т.ч. из папок `Subs`);
   - автоматический выбор по языкам (по умолчанию: 1 — русский, 2 — английский, меняется в настройках);
   - отдельная задержка для каждой дорожки, цвет и положение вторых субтитров (сверху экрана или над первыми), размер шрифта, подложка;
@@ -24,11 +24,11 @@
 
 ## Установка
 
-1. Скачайте `TorVideoPlayer.dmg` из [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases) (или из артефактов последней сборки во вкладке [Actions](https://github.com/Arthuralend/TorVideoPlayer/actions)).
-2. Перетащите **TorVideoPlayer** в «Программы».
+1. Скачайте `VLC-Torrent-player.dmg` из [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases) (или из артефактов последней сборки во вкладке [Actions](https://github.com/Arthuralend/TorVideoPlayer/actions)).
+2. Перетащите **VLC Torrent player** в «Программы».
 3. Приложение не подписано сертификатом Apple, поэтому при первом запуске macOS его заблокирует. Выполните в Терминале один раз:
    ```bash
-   xattr -dr com.apple.quarantine /Applications/TorVideoPlayer.app
+   xattr -dr com.apple.quarantine "/Applications/VLC Torrent player.app"
    ```
    (или: правый клик по приложению → «Открыть» → «Открыть»; на macOS 15 — «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть»).
 
@@ -55,7 +55,7 @@
 ## Как это устроено
 
 ```
-┌──────────────────────── TorVideoPlayer.app ────────────────────────┐
+┌─────────────────────── VLC Torrent player.app ──────────────────────┐
 │ SwiftUI интерфейс                                                  │
 │   ├─ VLCKit (libVLC 3) ── http://127.0.0.1:PORT/stream/… ──┐       │
 │   └─ свой рендер субтитров (SRT/ASS/VTT) поверх видео      │       │
@@ -72,7 +72,7 @@
 
 ### Про Ace Stream
 
-Ссылки `acestream://…` работают через собственную P2P-сеть Ace Stream, а не BitTorrent. Нативного Ace Stream для macOS нет; если запустить Ace Stream Engine (например, в Docker на порту 6878), TorVideoPlayer воспроизведёт `acestream://ID` через него. Обычные торренты (magnet / .torrent) работают без каких-либо дополнительных программ.
+Ссылки `acestream://…` работают через собственную P2P-сеть Ace Stream, а не BitTorrent. Нативного Ace Stream для macOS нет; если запустить Ace Stream Engine (например, в Docker на порту 6878), VLC Torrent player воспроизведёт `acestream://ID` через него. Обычные торренты (magnet / .torrent) работают без каких-либо дополнительных программ.
 
 ## Сборка из исходников
 
@@ -82,7 +82,7 @@
 brew install go xcodegen cocoapods
 git clone https://github.com/Arthuralend/TorVideoPlayer.git
 cd TorVideoPlayer
-./scripts/build-app.sh          # → build/TorVideoPlayer.app и build/TorVideoPlayer.dmg
+./scripts/build-app.sh          # → build/TorVideoPlayer.app и build/VLC-Torrent-player.dmg
 ```
 
 Для разработки: `./scripts/build-engine.sh && xcodegen generate && pod install`, затем откройте `TorVideoPlayer.xcworkspace` в Xcode.
