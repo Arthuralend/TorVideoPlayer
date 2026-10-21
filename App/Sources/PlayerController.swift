@@ -49,7 +49,7 @@ final class PlayerController: ObservableObject {
     @Published private(set) var rate: Float = 1
     @Published private(set) var isMuted = false
     @Published var volume: Double = 100 {
-        didSet { mediaPlayer.audio?.volume = Int32(volume) }
+        didSet { vlcAudio?.volume = Int32(volume) }
     }
 
     @Published private(set) var audioTracks: [TrackOption] = []
@@ -85,6 +85,9 @@ final class PlayerController: ObservableObject {
         videoView.autoresizingMask = [.width, .height]
         mediaPlayer.drawable = videoView
     }
+
+    /// Typed as optional whatever nullability VLCKit's headers declare.
+    private var vlcAudio: VLCAudio? { mediaPlayer.audio }
 
     var vlcRendersSubtitle: Bool {
         if case .embedded = primarySource { return true }
@@ -129,7 +132,7 @@ final class PlayerController: ObservableObject {
         mediaPlayer.media = media
         mediaPlayer.rate = rate
         mediaPlayer.play()
-        mediaPlayer.audio?.volume = Int32(volume)
+        vlcAudio?.volume = Int32(volume)
         hasMedia = true
         startTicking()
         autoSelectSubtitles()
@@ -189,7 +192,7 @@ final class PlayerController: ObservableObject {
 
     func toggleMute() {
         isMuted.toggle()
-        mediaPlayer.audio?.isMuted = isMuted
+        vlcAudio?.isMuted = isMuted
         showOSD(isMuted ? "Звук выключен" : "Звук включён")
     }
 
@@ -417,7 +420,8 @@ final class PlayerController: ObservableObject {
         let playing = mediaPlayer.isPlaying
         if playing != isPlaying { isPlaying = playing }
 
-        let t = Int(mediaPlayer.time?.intValue ?? 0)
+        let time: VLCTime? = mediaPlayer.time
+        let t = Int(time?.intValue ?? 0)
         if t != timeMs { timeMs = t }
         if let length = mediaPlayer.media?.length.intValue, length > 0, Int(length) != lengthMs {
             lengthMs = Int(length)
