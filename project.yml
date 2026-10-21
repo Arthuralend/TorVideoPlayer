@@ -15,6 +15,7 @@ targets:
   TorVideoPlayer:
     type: application
     platform: macOS
+    scheme: {}
     sources:
       - path: App/Sources
       - path: App/Resources
