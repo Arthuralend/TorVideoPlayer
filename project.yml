@@ -1,0 +1,46 @@
+name: TorVideoPlayer
+options:
+  bundleIdPrefix: com.arthuralend
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+targets:
+  TorVideoPlayer:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+        optional: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arthuralend.TorVideoPlayer
+        PRODUCT_NAME: TorVideoPlayer
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+    postBuildScripts:
+      - name: Embed torrent engine
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin"
+          ENGINE="$SRCROOT/build/engine/torengine"
+          if [ ! -f "$ENGINE" ]; then
+            "$SRCROOT/scripts/build-engine.sh"
+          fi
+          cp "$ENGINE" "$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/torengine"
+          chmod +x "$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/torengine"
+          codesign --force --sign - "$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/torengine"

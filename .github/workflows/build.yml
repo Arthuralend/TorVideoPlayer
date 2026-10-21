@@ -1,0 +1,114 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  engine-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Vet and build engine
+        working-directory: engine
+        run: |
+          go vet ./...
+          CGO_ENABLED=0 go build ./...
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build torrent engine (universal)
+        run: ./scripts/build-engine.sh
+
+      - name: Generate Xcode project and install VLCKit
+        run: |
+          set -o pipefail
+          xcodegen generate 2>&1 | tee build/setup.log
+          pod install --repo-update 2>&1 | tee -a build/setup.log
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace TorVideoPlayer.xcworkspace \
+            -scheme TorVideoPlayer \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
+            build | tee build/xcodebuild.log | grep -E "error:|warning: .*Sources|BUILD (SUCCEEDED|FAILED)" || true
+          grep -E "error:" build/xcodebuild.log | sort -u | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+          test -d build/DerivedData/Build/Products/Release/TorVideoPlayer.app
+
+      - name: Sign (ad-hoc) and smoke-test
+        run: |
+          APP=build/DerivedData/Build/Products/Release/TorVideoPlayer.app
+          codesign --force --deep --sign - "$APP"
+          cp -R "$APP" build/TorVideoPlayer.app
+          lipo -info build/TorVideoPlayer.app/Contents/MacOS/TorVideoPlayer
+          lipo -info build/TorVideoPlayer.app/Contents/MacOS/torengine
+          ls build/TorVideoPlayer.app/Contents/Frameworks
+          # The engine must start and answer on its HTTP port.
+          ( sleep 5 | build/TorVideoPlayer.app/Contents/MacOS/torengine -data "$RUNNER_TEMP/tvp" > "$RUNNER_TEMP/engine.out" ) &
+          sleep 2
+          PORT=$(awk '/LISTENING/{print $2}' "$RUNNER_TEMP/engine.out")
+          curl -fsS "http://127.0.0.1:$PORT/health"
+          # The app must launch and stay up.
+          build/TorVideoPlayer.app/Contents/MacOS/TorVideoPlayer &
+          APP_PID=$!
+          sleep 8
+          kill -0 $APP_PID && echo "App is running"
+          kill $APP_PID || true
+
+      - name: Create DMG
+        run: ./scripts/make-dmg.sh build/TorVideoPlayer.app
+
+      - name: Report failure details
+        if: failure()
+        run: |
+          for f in build/setup.log build/xcodebuild.log; do
+            [ -f "$f" ] || continue
+            msg=$(tail -n 40 "$f" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=$f::$msg"
+          done
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TorVideoPlayer-dmg
+          path: build/TorVideoPlayer.dmg
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/TorVideoPlayer.dmg
+          generate_release_notes: true
