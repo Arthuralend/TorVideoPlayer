@@ -1,0 +1,36 @@
+<Window x:Class="MediaPlayerApp.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки — MediaPlayer" Width="500" SizeToContent="Height" ResizeMode="NoResize"
+        Background="{StaticResource Bg}" WindowStartupLocation="CenterOwner" Icon="icon.png">
+    <StackPanel Margin="22">
+        <TextBlock Text="Субтитры" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <CheckBox x:Name="AutoSubs" Content="Включать субтитры автоматически" Foreground="{StaticResource Fg}" Margin="0,0,0,8"/>
+        <DockPanel Margin="0,0,0,6">
+            <TextBlock Text="Язык субтитров 1" Width="160" VerticalAlignment="Center"/>
+            <ComboBox x:Name="Lang1" DisplayMemberPath="Name" SelectedValuePath="Code"/>
+        </DockPanel>
+        <DockPanel Margin="0,0,0,16">
+            <TextBlock Text="Язык субтитров 2" Width="160" VerticalAlignment="Center"/>
+            <ComboBox x:Name="Lang2" DisplayMemberPath="Name" SelectedValuePath="Code"/>
+        </DockPanel>
+
+        <TextBlock Text="Сеть" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <DockPanel Margin="0,0,0,8">
+            <TextBlock Text="Буфер VLC" Width="160" VerticalAlignment="Center"/>
+            <TextBlock x:Name="CacheLabel" DockPanel.Dock="Right" Width="50" TextAlignment="Right" VerticalAlignment="Center"/>
+            <Slider x:Name="Cache" Minimum="1000" Maximum="15000" TickFrequency="500" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+        </DockPanel>
+        <CheckBox x:Name="KeepDownloads" Content="Сохранять скачанные файлы после выхода" Foreground="{StaticResource Fg}"/>
+        <TextBlock Text="Вступит в силу после перезапуска." Foreground="{StaticResource FgDim}" FontSize="11" Margin="20,2,0,8"/>
+        <Button Content="Открыть папку загрузок" Style="{StaticResource FlatButton}" HorizontalAlignment="Left" Click="OpenDownloads_Click"/>
+
+        <TextBlock Text="Система" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,8"/>
+        <Button Content="Открывать magnet-ссылки и .torrent файлы в MediaPlayer" Style="{StaticResource FlatButton}" HorizontalAlignment="Left" Click="Associate_Click"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button Content="Отмена" Style="{StaticResource FlatButton}" IsCancel="True"/>
+            <Button Content="Сохранить" Style="{StaticResource AccentButton}" Margin="8,0,0,0" IsDefault="True" Click="Save_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

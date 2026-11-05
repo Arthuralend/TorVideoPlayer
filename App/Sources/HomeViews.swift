@@ -11,7 +11,7 @@ struct HomeView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
-            Text("VLC Torrent player")
+            Text("MediaPlayer")
                 .font(.largeTitle.bold())
             Text("Смотрите торренты онлайн — без ожидания полной загрузки")
                 .foregroundStyle(.secondary)

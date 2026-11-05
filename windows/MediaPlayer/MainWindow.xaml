@@ -1,0 +1,276 @@
+<Window x:Class="MediaPlayerApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
+        Title="MediaPlayer" Width="1100" Height="680" MinWidth="820" MinHeight="500"
+        Background="{StaticResource Bg}" Icon="icon.png" AllowDrop="True"
+        WindowStartupLocation="CenterScreen">
+    <Grid x:Name="Root">
+
+        <!-- Home -->
+        <Grid x:Name="HomePanel">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="32" MaxWidth="700">
+                    <Image Source="icon.png" Width="104" Height="104" HorizontalAlignment="Center"/>
+                    <TextBlock Text="MediaPlayer" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,10,0,4"/>
+                    <TextBlock Text="Смотрите торренты онлайн — без ожидания полной загрузки"
+                               Foreground="{StaticResource FgDim}" FontSize="14" HorizontalAlignment="Center"/>
+                    <Grid Margin="0,24,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="InputBox" Style="{StaticResource DarkTextBox}" KeyDown="InputBox_KeyDown"
+                                 ToolTip="magnet:?xt=…, ссылка на .torrent, info-hash или acestream://…"/>
+                        <TextBlock x:Name="InputHint" Text="magnet:?xt=…, ссылка на .torrent, info-hash или acestream://…"
+                                   Foreground="#FF6A6A72" Margin="12,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <Button Grid.Column="1" Content="Смотреть" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="Watch_Click"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
+                        <Button Content="📂  Открыть файл…" Style="{StaticResource FlatButton}" Click="OpenFile_Click"/>
+                        <Button Content="📋  Вставить из буфера" Style="{StaticResource FlatButton}" Margin="10,0,0,0" Click="Paste_Click"/>
+                        <Button Content="⚙  Настройки" Style="{StaticResource FlatButton}" Margin="10,0,0,0" Click="Settings_Click"/>
+                    </StackPanel>
+                    <TextBlock Text="Или перетащите .torrent файл, magnet-ссылку или видео в это окно"
+                               Foreground="{StaticResource FgDim}" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+
+                    <StackPanel Margin="0,28,0,0" Visibility="{Binding HasRecents, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Очистить" Style="{StaticResource FlatButton}" Padding="10,3" Click="ClearRecents_Click"/>
+                            <TextBlock Text="Недавние" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Recents}" Margin="0,8,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource FlatButton}" HorizontalContentAlignment="Stretch" Margin="0,2"
+                                            Padding="12,7" Click="Recent_Click" Tag="{Binding}">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Скопировать ссылку" Click="RecentCopy_Click" Tag="{Binding}"/>
+                                                <MenuItem Header="Удалить из списка" Click="RecentRemove_Click" Tag="{Binding}"/>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                        <DockPanel Width="640">
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding DateText}" Foreground="{StaticResource FgDim}" FontSize="12"/>
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
+                                        </DockPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Loading -->
+        <StackPanel x:Name="LoadingPanel" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <ProgressBar IsIndeterminate="True" Width="260" Height="5" Foreground="{StaticResource Accent}" Background="{StaticResource Panel}" BorderThickness="0"/>
+            <TextBlock Text="{Binding LoadingMessage}" FontSize="18" HorizontalAlignment="Center" Margin="0,18,0,6"/>
+            <TextBlock Text="Поиск пиров может занять до минуты для редких раздач" Foreground="{StaticResource FgDim}" HorizontalAlignment="Center"/>
+            <Button Content="Отмена" Style="{StaticResource FlatButton}" HorizontalAlignment="Center" Margin="0,18,0,0" Click="CancelLoading_Click"/>
+        </StackPanel>
+
+        <!-- File list -->
+        <DockPanel x:Name="FilesPanel" Visibility="Collapsed" Margin="20">
+            <StackPanel DockPanel.Dock="Top">
+                <Button Content="‹  Назад" Style="{StaticResource FlatButton}" HorizontalAlignment="Left" Click="Home_Click"/>
+                <TextBlock Text="{Binding CurrentTorrent.Name}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Margin="0,14,0,4"/>
+                <TextBlock Text="{Binding FilesSummary}" Foreground="{StaticResource FgDim}" Margin="0,0,0,12"/>
+            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="FilesList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource FlatButton}" HorizontalContentAlignment="Stretch" Margin="0,2" Padding="12,9"
+                                    Click="File_Click" Tag="{Binding}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource Accent}" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Directory}" Foreground="{StaticResource FgDim}" FontSize="11"
+                                                   Visibility="{Binding Directory, Converter={StaticResource NullToCollapsed}}"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Text="{Binding SizeText}" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+
+        <!-- Player. VideoView's content is drawn in a transparent window above the video. -->
+        <Grid x:Name="PlayerPanel" Visibility="Collapsed" Background="Black">
+            <vlc:VideoView x:Name="VideoView" Loaded="VideoView_Loaded">
+                <Grid x:Name="Overlay" Background="#01000000" AllowDrop="True"
+                      MouseMove="Overlay_MouseMove" MouseLeftButtonDown="Overlay_MouseLeftButtonDown" Loaded="Overlay_Loaded">
+
+                    <!-- Subtitles -->
+                    <Grid x:Name="SubtitleLayer" IsHitTestVisible="False" Margin="48,0">
+                        <Border x:Name="TopSubBox" Style="{StaticResource SubtitleBox}" VerticalAlignment="Top" Margin="0,24,0,0">
+                            <TextBlock x:Name="TopSubText" TextAlignment="Center" TextWrapping="Wrap" FontWeight="SemiBold">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="Black" Opacity="1"/>
+                                </TextBlock.Effect>
+                            </TextBlock>
+                        </Border>
+                        <StackPanel x:Name="BottomSubs" VerticalAlignment="Bottom" Margin="0,0,0,40">
+                            <Border x:Name="StackedSubBox" Style="{StaticResource SubtitleBox}">
+                                <TextBlock x:Name="StackedSubText" TextAlignment="Center" TextWrapping="Wrap" FontWeight="SemiBold">
+                                    <TextBlock.Effect>
+                                        <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="Black" Opacity="1"/>
+                                    </TextBlock.Effect>
+                                </TextBlock>
+                            </Border>
+                            <Border x:Name="PrimarySubBox" Style="{StaticResource SubtitleBox}">
+                                <TextBlock x:Name="PrimarySubText" TextAlignment="Center" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="White">
+                                    <TextBlock.Effect>
+                                        <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="Black" Opacity="1"/>
+                                    </TextBlock.Effect>
+                                </TextBlock>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Buffering / error -->
+                    <Border x:Name="BufferingBadge" Background="#AA000000" CornerRadius="14" Padding="24,18"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed">
+                        <StackPanel>
+                            <ProgressBar x:Name="BufferingBar" IsIndeterminate="True" Width="160" Height="4" Foreground="{StaticResource Accent}" Background="#33FFFFFF" BorderThickness="0"/>
+                            <TextBlock x:Name="BufferingText" Text="Буферизация…" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4"/>
+                            <TextBlock Text="{Binding StatusText}" Foreground="#CCFFFFFF" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- OSD -->
+                    <Border Background="#99000000" CornerRadius="10" Padding="16,8" HorizontalAlignment="Center" VerticalAlignment="Top"
+                            Margin="0,70,0,0" IsHitTestVisible="False"
+                            Visibility="{Binding Player.OsdMessage, Converter={StaticResource NullToCollapsed}}">
+                        <TextBlock Text="{Binding Player.OsdMessage}" FontSize="17" FontWeight="SemiBold"/>
+                    </Border>
+
+                    <!-- Top bar -->
+                    <DockPanel x:Name="TopBar" VerticalAlignment="Top" LastChildFill="True">
+                        <DockPanel.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#C0000000" Offset="0"/>
+                                <GradientStop Color="#00000000" Offset="1"/>
+                            </LinearGradientBrush>
+                        </DockPanel.Background>
+                        <Button DockPanel.Dock="Left" Content="&#xE72B;" Style="{StaticResource IconButton}" Margin="10,8,4,14" Click="ClosePlayer_Click" ToolTip="Назад"/>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" Foreground="#D0FFFFFF" VerticalAlignment="Center" Margin="10,0,18,8"/>
+                        <TextBlock Text="{Binding Player.Title}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0,0,8"/>
+                    </DockPanel>
+
+                    <!-- Bottom bar -->
+                    <StackPanel x:Name="BottomBar" VerticalAlignment="Bottom">
+                        <StackPanel.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0"/>
+                                <GradientStop Color="#D0000000" Offset="0.45"/>
+                            </LinearGradientBrush>
+                        </StackPanel.Background>
+                        <Grid Margin="18,26,18,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="64"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="64"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TimeText" Text="{Binding Player.TimeMs, Converter={StaticResource Time}}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,10,0"/>
+                            <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="1" VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                                    Foreground="{StaticResource Accent}" Focusable="False"
+                                    PreviewMouseLeftButtonDown="Seek_DragStarted" PreviewMouseLeftButtonUp="Seek_DragCompleted"/>
+                            <TextBlock Grid.Column="2" Text="{Binding Player.LengthMs, Converter={StaticResource Time}}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </Grid>
+                        <DockPanel Margin="14,4,14,10">
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                                <Button Content="−10" FontFamily="Segoe UI" FontWeight="Bold" FontSize="14" Style="{StaticResource IconButton}" Click="Back10_Click" ToolTip="Назад 10 с (←)"/>
+                                <Button x:Name="PlayButton" Content="&#xE768;" FontSize="22" Style="{StaticResource IconButton}" Click="Play_Click" ToolTip="Пауза (пробел)"/>
+                                <Button Content="+10" FontFamily="Segoe UI" FontWeight="Bold" FontSize="14" Style="{StaticResource IconButton}" Click="Forward10_Click" ToolTip="Вперёд 10 с (→)"/>
+                                <Button Content="&#xE893;" Style="{StaticResource IconButton}" Click="Next_Click" ToolTip="Следующий файл (N)"
+                                        Visibility="{Binding HasNextFile, Converter={StaticResource BoolToVis}}"/>
+                                <Button x:Name="MuteButton" Content="&#xE767;" Style="{StaticResource IconButton}" Margin="10,0,0,0" Click="Mute_Click"/>
+                                <Slider Width="100" Minimum="0" Maximum="200" Value="{Binding Player.Volume}" VerticalAlignment="Center" Focusable="False"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <Button x:Name="SubsButton" Style="{StaticResource IconButton}" Click="Subs_Click" ToolTip="Субтитры (S / D)">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE7F0;" FontFamily="Segoe MDL2 Assets" FontSize="18" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Player.SubtitleSummary}" FontFamily="Segoe UI" FontSize="12" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="AudioButton" Content="&#xE8D6;" Style="{StaticResource IconButton}" Click="Audio_Click" ToolTip="Звуковая дорожка"/>
+                                <Button x:Name="RateButton" Content="1×" FontFamily="Segoe UI" FontSize="14" Style="{StaticResource IconButton}" Click="Rate_Click" ToolTip="Скорость ([ ] \)"/>
+                                <Button Content="&#xE740;" Style="{StaticResource IconButton}" Click="FullScreen_Click" ToolTip="Полный экран (F)"/>
+                            </StackPanel>
+                            <Grid/>
+                        </DockPanel>
+                    </StackPanel>
+
+                    <!-- Subtitle settings -->
+                    <Popup x:Name="SubsPopup" PlacementTarget="{Binding ElementName=SubsButton}" Placement="Top" StaysOpen="False" AllowsTransparency="True">
+                        <Border Background="#F2232327" CornerRadius="10" Padding="18" Width="420" BorderBrush="#FF3A3A40" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Двойные субтитры" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Субтитры 1 (белые, внизу)" Foreground="{StaticResource FgDim}"/>
+                                <ComboBox ItemsSource="{Binding Player.SubtitleOptions}" SelectedValuePath="Source"
+                                          SelectedValue="{Binding Player.PrimarySelection, Mode=TwoWay}" Margin="0,4,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="Задержка:" VerticalAlignment="Center"/>
+                                    <Button Content="−" Style="{StaticResource FlatButton}" Padding="10,2" Margin="8,0,4,0" Click="Delay1Minus_Click"/>
+                                    <TextBlock Text="{Binding Player.PrimaryDelay, StringFormat={}{0:+0.0;−0.0;0.0} с}" Width="56" TextAlignment="Center" VerticalAlignment="Center"/>
+                                    <Button Content="+" Style="{StaticResource FlatButton}" Padding="10,2" Margin="4,0,0,0" Click="Delay1Plus_Click"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Субтитры 2 (цветные)" Foreground="{StaticResource FgDim}"/>
+                                <ComboBox ItemsSource="{Binding Player.SubtitleOptions}" SelectedValuePath="Source"
+                                          SelectedValue="{Binding Player.SecondarySelection, Mode=TwoWay}" Margin="0,4,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="Задержка:" VerticalAlignment="Center"/>
+                                    <Button Content="−" Style="{StaticResource FlatButton}" Padding="10,2" Margin="8,0,4,0" Click="Delay2Minus_Click"/>
+                                    <TextBlock Text="{Binding Player.SecondaryDelay, StringFormat={}{0:+0.0;−0.0;0.0} с}" Width="56" TextAlignment="Center" VerticalAlignment="Center"/>
+                                    <Button Content="+" Style="{StaticResource FlatButton}" Padding="10,2" Margin="4,0,0,0" Click="Delay2Plus_Click"/>
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Button Content="⇅  Поменять местами" Style="{StaticResource FlatButton}" Click="SwapSubs_Click"/>
+                                    <Button Content="Загрузить из файла…" Style="{StaticResource FlatButton}" Margin="8,0,0,0" Click="LoadSubs_Click"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Положение субтитров 2" Foreground="{StaticResource FgDim}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
+                                    <RadioButton x:Name="PosTop" Content="Вверху экрана" Foreground="{StaticResource Fg}" Checked="SubStyle_Changed"/>
+                                    <RadioButton x:Name="PosStacked" Content="Над субтитрами 1" Foreground="{StaticResource Fg}" Margin="16,0,0,0" Checked="SubStyle_Changed"/>
+                                </StackPanel>
+                                <DockPanel Margin="0,0,0,10">
+                                    <TextBlock Text="Цвет субтитров 2" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Width="130"/>
+                                    <ComboBox x:Name="ColorBox" SelectionChanged="SubStyle_Changed">
+                                        <ComboBoxItem Content="Жёлтый" Tag="yellow"/>
+                                        <ComboBoxItem Content="Голубой" Tag="cyan"/>
+                                        <ComboBoxItem Content="Зелёный" Tag="green"/>
+                                        <ComboBoxItem Content="Белый" Tag="white"/>
+                                    </ComboBox>
+                                </DockPanel>
+                                <DockPanel Margin="0,0,0,10">
+                                    <TextBlock Text="Размер" Foreground="{StaticResource FgDim}" VerticalAlignment="Center" Width="130"/>
+                                    <TextBlock x:Name="SizeLabel" DockPanel.Dock="Right" Width="30" TextAlignment="Right" VerticalAlignment="Center"/>
+                                    <Slider x:Name="SizeSlider" Minimum="16" Maximum="72" SmallChange="1" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="SubStyle_Changed" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <CheckBox x:Name="BgCheck" Content="Тёмная подложка под текстом" Foreground="{StaticResource Fg}" Checked="SubStyle_Changed" Unchecked="SubStyle_Changed"/>
+                                <TextBlock Margin="0,12,0,0" Foreground="{StaticResource FgDim}" FontSize="11" TextWrapping="Wrap"
+                                           Text="Можно включить любые две дорожки одновременно: встроенные в видео или файлы .srt/.ass/.vtt. Клавиши: S / D — переключить, Z / X и C / V — задержка ±0,1 с."/>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </Grid>
+            </vlc:VideoView>
+        </Grid>
+    </Grid>
+</Window>

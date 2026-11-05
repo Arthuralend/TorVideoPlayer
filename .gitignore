@@ -6,3 +6,5 @@ Pods/
 Podfile.lock
 xcuserdata/
 .DS_Store
+windows/**/bin/
+windows/**/obj/

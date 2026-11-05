@@ -1,14 +1,14 @@
-# VLC Torrent player
+# MediaPlayer
 
-**VLC Torrent player** — плеер для macOS, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
+**MediaPlayer** — плеер для **macOS и Windows**, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
 
-![icon](App/Resources/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png)
+<img src="assets/icon-1024.png" width="160" alt="MediaPlayer icon">
 
 ## Возможности
 
 - **Magnet-ссылки, .torrent файлы, ссылки на .torrent, info-hash** — вставьте, перетащите в окно или откройте двойным кликом (приложение регистрируется как обработчик `magnet:` и `.torrent`).
 - **Стриминг во время загрузки**: в первую очередь качаются куски файла, которые сейчас смотрит плеер. Перемотка работает сразу — загрузка переключается на новую позицию.
-- **VLC внутри**: MKV, AVI, MP4, HEVC/H.265, AC3/DTS, несколько звуковых дорожек — всё, что умеет VLC.
+- **VLC внутри** (VLCKit на Mac, LibVLCSharp на Windows): MKV, AVI, MP4, HEVC/H.265, AC3/DTS, несколько звуковых дорожек — всё, что умеет VLC.
 - **Двойные субтитры**: одновременно две дорожки (например, английские + русские для изучения языка):
   - любые две дорожки, встроенные в MKV (текстовые SRT/ASS/WebVTT читаются прямо из торрента рядом с позицией просмотра), и/или внешние файлы `.srt / .ass / .ssa / .vtt`;
   - для форматов, которые движок не читает (субтитры в MP4, картинки PGS/VobSub), — дорожка через VLC;
@@ -20,17 +20,29 @@
 - Статистика: пиры, скорость, сколько скачано.
 - Недавние торренты на главном экране.
 - Локальные видеофайлы и прямые http-ссылки на видео тоже открываются.
-- Universal-сборка: Apple Silicon (M1–M4) и Intel, macOS 13 Ventura и новее.
+- macOS: universal-сборка для Apple Silicon (M1–M4) и Intel, macOS 13 Ventura и новее.
+- Windows: 10 и 11 (64-бит), установщик или портативная версия.
 
 ## Установка
 
-1. Скачайте `VLC-Torrent-player.dmg` из [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases) (или из артефактов последней сборки во вкладке [Actions](https://github.com/Arthuralend/TorVideoPlayer/actions)).
-2. Перетащите **VLC Torrent player** в «Программы».
+Все файлы — на странице [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases/latest).
+
+### macOS
+
+1. Скачайте `MediaPlayer.dmg` из [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases) (или из артефактов последней сборки во вкладке [Actions](https://github.com/Arthuralend/TorVideoPlayer/actions)).
+2. Перетащите **MediaPlayer** в «Программы».
 3. Приложение не подписано сертификатом Apple, поэтому при первом запуске macOS его заблокирует. Выполните в Терминале один раз:
    ```bash
-   xattr -dr com.apple.quarantine "/Applications/VLC Torrent player.app"
+   xattr -dr com.apple.quarantine "/Applications/MediaPlayer.app"
    ```
    (или: правый клик по приложению → «Открыть» → «Открыть»; на macOS 15 — «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть»).
+
+### Windows
+
+- **Установщик**: `MediaPlayer-Setup-x64.exe`. Права администратора не нужны; при установке можно включить открытие magnet-ссылок и .torrent файлов в MediaPlayer. Программа не подписана, поэтому SmartScreen может показать предупреждение: «Подробнее» → «Выполнить в любом случае».
+- **Портативная версия**: `MediaPlayer-Windows-x64.zip` — распакуйте в любую папку и запустите `MediaPlayer.exe`. Ассоциации с magnet/.torrent включаются в «Настройках».
+
+Файлы программы на Windows: настройки — `%APPDATA%\MediaPlayer`, загрузки и логи — `%LOCALAPPDATA%\MediaPlayer`.
 
 ## Горячие клавиши
 
@@ -55,7 +67,7 @@
 ## Как это устроено
 
 ```
-┌─────────────────────── VLC Torrent player.app ──────────────────────┐
+┌─────────────────────── MediaPlayer.app ──────────────────────┐
 │ SwiftUI интерфейс                                                  │
 │   ├─ VLCKit (libVLC 3) ── http://127.0.0.1:PORT/stream/… ──┐       │
 │   └─ свой рендер субтитров (SRT/ASS/VTT) поверх видео      │       │
@@ -66,15 +78,18 @@
 ```
 
 - `engine/` — торрент-движок на Go: DHT, трекеры, PEX, uTP/TCP. Отдаёт файлы по HTTP с поддержкой Range, поэтому VLC может перематывать. Сам завершается вместе с приложением и удаляет временные файлы (их можно сохранять — см. настройки).
-- `App/Sources/` — приложение на Swift/SwiftUI + VLCKit.
+- `App/Sources/` — приложение для macOS на Swift/SwiftUI + VLCKit.
+- `windows/MediaPlayer/` — приложение для Windows на C#/WPF (.NET 8) + LibVLCSharp, тот же движок (`torengine.exe`).
 
 Загрузки лежат в `~/Library/Caches/TorVideoPlayer/Downloads` и удаляются при выходе (если не включено «Сохранять скачанные файлы»). Лог движка: `~/Library/Caches/TorVideoPlayer/engine.log`.
 
 ### Про Ace Stream
 
-Ссылки `acestream://…` работают через собственную P2P-сеть Ace Stream, а не BitTorrent. Нативного Ace Stream для macOS нет; если запустить Ace Stream Engine (например, в Docker на порту 6878), VLC Torrent player воспроизведёт `acestream://ID` через него. Обычные торренты (magnet / .torrent) работают без каких-либо дополнительных программ.
+Ссылки `acestream://…` работают через собственную P2P-сеть Ace Stream, а не BitTorrent. Нативного Ace Stream для macOS нет; если запустить Ace Stream Engine (например, в Docker на порту 6878), MediaPlayer воспроизведёт `acestream://ID` через него. Обычные торренты (magnet / .torrent) работают без каких-либо дополнительных программ.
 
 ## Сборка из исходников
+
+### macOS
 
 Нужны Xcode 15+, Go, XcodeGen и CocoaPods:
 
@@ -82,12 +97,22 @@
 brew install go xcodegen cocoapods
 git clone https://github.com/Arthuralend/TorVideoPlayer.git
 cd TorVideoPlayer
-./scripts/build-app.sh          # → build/TorVideoPlayer.app и build/VLC-Torrent-player.dmg
+./scripts/build-app.sh          # → build/TorVideoPlayer.app и build/MediaPlayer.dmg
 ```
 
 Для разработки: `./scripts/build-engine.sh && xcodegen generate && pod install`, затем откройте `TorVideoPlayer.xcworkspace` в Xcode.
 
-Каждый push собирается в GitHub Actions (macOS), тег `v*` публикует релиз с DMG.
+### Windows
+
+Нужны .NET 8 SDK и Go (а для установщика — Inno Setup 6):
+
+```bash
+./scripts/build-engine-windows.sh                       # → build/engine-windows/torengine.exe (собирается на любой ОС)
+dotnet publish windows/MediaPlayer/MediaPlayer.csproj -c Release -o build/windows/publish
+iscc windows/installer.iss                              # → build/MediaPlayer-Setup-x64.exe
+```
+
+Каждый push в `main` собирается в GitHub Actions (macOS и Windows) и публикует релиз с DMG, установщиком и zip-архивом.
 
 ## Другие программы для macOS (для сравнения)
 

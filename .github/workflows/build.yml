@@ -1,4 +1,4 @@
-name: Build macOS app
+name: Build macOS and Windows apps
 
 on:
   push:
@@ -109,8 +109,97 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: VLC-Torrent-player-dmg
-          path: build/VLC-Torrent-player.dmg
+          name: MediaPlayer-dmg
+          path: build/MediaPlayer.dmg
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(grep -E 'MARKETING_VERSION' project.yml | head -1 | sed -E 's/[^0-9.]//g')" >> "$GITHUB_OUTPUT"
+
+      - name: Build torrent engine
+        shell: bash
+        run: ./scripts/build-engine-windows.sh
+
+      - name: Publish app
+        run: dotnet publish windows/MediaPlayer/MediaPlayer.csproj -c Release -o build/windows/publish -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Smoke-test
+        shell: pwsh
+        run: |
+          $dir = "build/windows/publish"
+          if (-not (Test-Path "$dir/torengine.exe")) { throw "torengine.exe missing" }
+          if (-not (Test-Path "$dir/libvlc/win-x64/libvlc.dll")) { throw "libvlc missing" }
+          # The engine must start and answer on its HTTP port.
+          $psi = New-Object System.Diagnostics.ProcessStartInfo "$dir/torengine.exe"
+          $psi.Arguments = "-data `"$env:RUNNER_TEMP\tvp`""
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardInput = $true
+          $psi.RedirectStandardOutput = $true
+          $engine = [System.Diagnostics.Process]::Start($psi)
+          $line = $engine.StandardOutput.ReadLine()
+          Write-Host $line
+          $port = $line.Split(" ")[1]
+          Invoke-WebRequest "http://127.0.0.1:$port/health" -UseBasicParsing | Select-Object -ExpandProperty Content
+          $engine.StandardInput.Close()
+          if (-not $engine.WaitForExit(5000)) { throw "engine did not exit when stdin closed" }
+          # The app must launch (loads LibVLC) and stay up.
+          $app = Start-Process -FilePath "$dir/MediaPlayer.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if ($app.HasExited) {
+            Get-Content "$env:LOCALAPPDATA/MediaPlayer/crash.log" -ErrorAction SilentlyContinue
+            throw "App exited with code $($app.ExitCode)"
+          }
+          Write-Host "App is running"
+          Get-Content "$env:LOCALAPPDATA/MediaPlayer/crash.log" -ErrorAction SilentlyContinue
+          Stop-Process -Id $app.Id -Force
+          Stop-Process -Name torengine -Force -ErrorAction SilentlyContinue
+
+      - name: Zip portable version
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/publish/* -DestinationPath build/MediaPlayer-Windows-x64.zip
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+            $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
+          }
+          iscc /DAppVersion=${{ steps.version.outputs.version }} windows/installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MediaPlayer-windows
+          path: |
+            build/MediaPlayer-Setup-x64.exe
+            build/MediaPlayer-Windows-x64.zip
+
+  release:
+    needs: [macos, windows]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Read version
         id: version
@@ -118,19 +207,27 @@ jobs:
 
       # Every push to main (re)publishes the release for the current version.
       - name: Publish release
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           target_commitish: ${{ github.sha }}
-          name: VLC Torrent player ${{ steps.version.outputs.version }}
-          files: build/VLC-Torrent-player.dmg
+          name: MediaPlayer ${{ steps.version.outputs.version }}
+          files: |
+            dist/MediaPlayer.dmg
+            dist/MediaPlayer-Setup-x64.exe
+            dist/MediaPlayer-Windows-x64.zip
           make_latest: true
           body: |
-            VLC Torrent player — торрент-плеер для macOS 13+ (Apple Silicon и Intel) на базе VLC с двойными субтитрами.
+            MediaPlayer — торрент-плеер на базе VLC с двойными субтитрами: смотрите торренты онлайн, не дожидаясь полной загрузки.
 
-            **Установка:** скачайте `VLC-Torrent-player.dmg`, перетащите приложение в «Программы», затем один раз выполните в Терминале:
+            ### macOS 13+ (Apple Silicon и Intel)
+            Скачайте `MediaPlayer.dmg`, перетащите приложение в «Программы», затем один раз выполните в Терминале:
             ```
-            xattr -dr com.apple.quarantine "/Applications/VLC Torrent player.app"
+            xattr -dr com.apple.quarantine "/Applications/MediaPlayer.app"
             ```
+
+            ### Windows 10/11 (64-бит)
+            - `MediaPlayer-Setup-x64.exe` — установщик (права администратора не нужны). Windows SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».
+            - `MediaPlayer-Windows-x64.zip` — портативная версия: распакуйте и запустите `MediaPlayer.exe`.
+
             Подробности — в [README](https://github.com/Arthuralend/TorVideoPlayer#readme).
