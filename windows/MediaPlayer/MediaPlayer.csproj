@@ -12,7 +12,7 @@
     <AssemblyName>MediaPlayer</AssemblyName>
     <RootNamespace>MediaPlayerApp</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Product>MediaPlayer</Product>
     <Description>Torrent streaming video player based on VLC with dual subtitles</Description>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

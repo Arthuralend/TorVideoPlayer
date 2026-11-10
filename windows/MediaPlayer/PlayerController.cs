@@ -229,6 +229,7 @@ public sealed class PlayerController : Observable
     public void Stop()
     {
         timer.Stop();
+        KeepDisplayAwake(false);
         if (Player.Media != null) Player.Stop();
         IsPlaying = false;
         IsBuffering = false;
@@ -546,17 +547,23 @@ public sealed class PlayerController : Observable
     {
         var state = Player.State;
         var playing = Player.IsPlaying;
-        IsPlaying = playing;
+        if (IsPlaying != playing)
+        {
+            IsPlaying = playing;
+            KeepDisplayAwake(playing);
+        }
         var t = Math.Max(0, Player.Time);
         TimeMs = t;
         var length = Player.Length;
         if (length > 0) LengthMs = length;
 
         // VLC's own "buffering" state is noisy; treat "time doesn't move while
-        // we are supposed to be playing" as buffering instead.
+        // we are supposed to be playing" as buffering instead. For some files
+        // VLC reports the time only about once a second, so a real stall is
+        // assumed only after 2.5 s without progress.
         stalledTicks = playing && t == lastTime ? stalledTicks + 1 : 0;
         lastTime = t;
-        IsBuffering = state == VLCState.Opening || (state == VLCState.Buffering && t == 0) || stalledTicks > 8;
+        IsBuffering = state == VLCState.Opening || (state == VLCState.Buffering && t == 0) || stalledTicks >= 25;
 
         if (state == VLCState.Error && ErrorText == null) ErrorText = "VLC не смог воспроизвести этот файл";
         if (state == VLCState.Ended && !endedReported)
@@ -588,6 +595,21 @@ public sealed class PlayerController : Observable
         // VLC may auto-enable a default track after we've chosen otherwise.
         if (HasMedia && (Player.State == VLCState.Playing || Player.State == VLCState.Paused)) SyncVlcSubtitle();
     }
+
+    // MARK: Display sleep
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern uint SetThreadExecutionState(uint flags);
+
+    private const uint EsContinuous = 0x80000000, EsSystemRequired = 0x00000001, EsDisplayRequired = 0x00000002;
+
+    /// <summary>
+    /// Keeps the screen on while a video is playing (Windows would otherwise
+    /// turn the display off after the idle timeout). Called on the UI thread,
+    /// which lives as long as the app.
+    /// </summary>
+    private static void KeepDisplayAwake(bool awake) =>
+        SetThreadExecutionState(awake ? EsContinuous | EsSystemRequired | EsDisplayRequired : EsContinuous);
 
     // MARK: OSD
 

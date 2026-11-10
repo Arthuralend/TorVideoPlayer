@@ -170,6 +170,7 @@ final class PlayerController: ObservableObject {
     func stop() {
         tickTask?.cancel()
         tickTask = nil
+        keepDisplayAwake(false)
         if mediaPlayer.media != nil {
             mediaPlayer.stop()
         }
@@ -508,7 +509,10 @@ final class PlayerController: ObservableObject {
     private func tick() {
         let state = mediaPlayer.state
         let playing = mediaPlayer.isPlaying
-        if playing != isPlaying { isPlaying = playing }
+        if playing != isPlaying {
+            isPlaying = playing
+            keepDisplayAwake(playing)
+        }
 
         let time: VLCTime? = mediaPlayer.time
         let t = Int(time?.intValue ?? 0)
@@ -518,10 +522,12 @@ final class PlayerController: ObservableObject {
         }
 
         // VLC's own "buffering" state is noisy; treat "time doesn't move while
-        // we are supposed to be playing" as buffering instead.
+        // we are supposed to be playing" as buffering instead. For some files
+        // VLC reports the time only about once a second, so a real stall is
+        // assumed only after 2.5 s without progress.
         if playing && t == lastTimeMs { stalledTicks += 1 } else { stalledTicks = 0 }
         lastTimeMs = t
-        let buffering = state == .opening || (state == .buffering && t == 0) || stalledTicks > 8
+        let buffering = state == .opening || (state == .buffering && t == 0) || stalledTicks >= 25
         if buffering != isBuffering { isBuffering = buffering }
 
         if state == .error, errorText == nil {
@@ -556,6 +562,23 @@ final class PlayerController: ObservableObject {
         // VLC may auto-enable a default track after we've chosen otherwise.
         if hasMedia, mediaPlayer.state == .playing || mediaPlayer.state == .paused {
             syncVLCSubtitle()
+        }
+    }
+
+    // MARK: Display sleep
+
+    private var awakeActivity: NSObjectProtocol?
+
+    /// Keeps the screen on while a video is playing (macOS would otherwise
+    /// dim and sleep the display after the idle timeout).
+    private func keepDisplayAwake(_ awake: Bool) {
+        if awake, awakeActivity == nil {
+            awakeActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled, .userInitiated],
+                reason: "Воспроизведение видео")
+        } else if !awake, let activity = awakeActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            awakeActivity = nil
         }
     }
 
