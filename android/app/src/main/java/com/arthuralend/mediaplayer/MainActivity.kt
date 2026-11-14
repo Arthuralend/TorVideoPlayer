@@ -429,7 +429,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.loadingPanel).visibility = if (s == Screen.LOADING) View.VISIBLE else View.GONE
         findViewById<View>(R.id.filesPanel).visibility = if (s == Screen.FILES) View.VISIBLE else View.GONE
         val inPlayer = s == Screen.PLAYER
-        setImmersive(inPlayer)
+        setFullscreenPlayer(inPlayer)
         if (inPlayer) {
             setControlsVisible(true)
         } else {
@@ -439,7 +439,7 @@ class MainActivity : Activity() {
         renderPlayer()
     }
 
-    private fun setImmersive(on: Boolean) {
+    private fun setFullscreenPlayer(on: Boolean) {
         window.setDecorFitsSystemWindowsCompat(!on)
         val controller = if (android.os.Build.VERSION.SDK_INT >= 30) window.insetsController else null
         if (controller != null) {
