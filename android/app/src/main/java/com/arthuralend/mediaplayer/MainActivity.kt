@@ -67,7 +67,11 @@ class MainActivity : Activity() {
     private val osd by lazy { findViewById<TextView>(R.id.osd) }
 
     private var hidePending = false
-    private val hideControls = Runnable { hidePending = false; setControlsVisible(false) }
+    private val hideControls = Runnable {
+        hidePending = false
+        setControlsVisible(false)
+        if (screen == Screen.PLAYER) setFullscreenPlayer(true)
+    }
     private val hideOsd = Runnable { osd.visibility = View.GONE }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,7 +134,18 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        if (screen == Screen.PLAYER) setFullscreenPlayer(true)
         renderPlayer()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && screen == Screen.PLAYER) setFullscreenPlayer(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (screen == Screen.PLAYER) window.decorView.post { setFullscreenPlayer(true) }
     }
 
     // MARK: Intents
@@ -439,7 +454,23 @@ class MainActivity : Activity() {
         renderPlayer()
     }
 
+    /**
+     * Hides the status and navigation bars in the player. Android brings them
+     * back after dialogs, app switches and rotation, so this is re-applied
+     * whenever the window regains focus.
+     */
     private fun setFullscreenPlayer(on: Boolean) {
+        @Suppress("DEPRECATION")
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            // Use the area around the camera cutout too.
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    if (on) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
         window.setDecorFitsSystemWindowsCompat(!on)
         val controller = if (android.os.Build.VERSION.SDK_INT >= 30) window.insetsController else null
         if (controller != null) {
