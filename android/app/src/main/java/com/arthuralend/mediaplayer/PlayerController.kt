@@ -97,8 +97,10 @@ class PlayerController(context: Context) {
     }
 
     fun attach(layout: VLCVideoLayout) {
-        // VLC draws its own (embedded) subtitles on the video surface.
-        player.attachViews(layout, null, true, false)
+        // TextureView: the video is an ordinary view, so our subtitle overlay
+        // stays on top of it (a SurfaceView covered the overlay on many
+        // devices). VLC still draws its own (embedded) subtitles.
+        player.attachViews(layout, null, true, true)
     }
 
     fun detach() = player.detachViews()

@@ -15,6 +15,8 @@ adb shell mkdir -p $DIR
 adb push "$MKV" $DIR/test.mkv
 adb shell am start -W -a android.intent.action.VIEW -t video/x-matroska -d "file://$DIR/test.mkv" -n $PKG/.MainActivity
 sleep 40
+adb exec-out screencap -p > screen.png || true
+sleep 1
 adb logcat -d -v brief > logcat.txt
 grep -E "MediaPlayer|AndroidRuntime|libvlc|VLC" logcat.txt | grep -vE "chatty" | tail -n 120 > app-log.txt
 cat app-log.txt
