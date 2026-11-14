@@ -67,6 +67,8 @@ class MainActivity : Activity() {
     private val osd by lazy { findViewById<TextView>(R.id.osd) }
 
     private var hidePending = false
+    private var lastLoggedPrimary: String? = null
+    private var lastLoggedSecondary: String? = null
     private val hideControls = Runnable {
         hidePending = false
         setControlsVisible(false)
@@ -79,6 +81,7 @@ class MainActivity : Activity() {
         Prefs.init(this)
         TorrentEngine.init(this)
         ContentReader.init(this)
+        getExternalFilesDir(null) // create the app folder in shared storage
         setContentView(R.layout.activity_main)
 
         player = PlayerController(this)
@@ -363,7 +366,10 @@ class MainActivity : Activity() {
 
     private fun playDirect(uri: Uri, title: String) {
         leaveCurrentTorrent()
-        player.open(uri, title, emptyList(), null)
+        // The engine can read embedded subtitles of local MKV files by path.
+        val path = if (uri.scheme == "file") uri.path else null
+        val source = if (path != null && path.substringAfterLast('.', "").lowercase() in MediaSource.MATROSKA_EXTENSIONS) MediaSource.Local(path) else null
+        player.open(uri, title, emptyList(), source)
         showScreen(Screen.PLAYER)
     }
 
@@ -618,6 +624,12 @@ class MainActivity : Activity() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
             setTextColor(color)
             setBackgroundColor(bg)
+        }
+        if (p != lastLoggedPrimary || s != lastLoggedSecondary) {
+            lastLoggedPrimary = p
+            lastLoggedSecondary = s
+            android.util.Log.i(PlayerController.TAG, "overlay primary=${p?.replace('\n', '|')} secondary=${s?.replace('\n', '|')} " +
+                "shown=${primarySub.isShown} h=${primarySub.height}")
         }
         primarySub.show(p, size, Color.WHITE)
         topSub.show(if (top) s else null, size * 0.92f, secondaryColor())

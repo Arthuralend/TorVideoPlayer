@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.MainScope
+import android.util.Log
 import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
@@ -170,9 +171,16 @@ class PlayerController(context: Context) {
     private fun loadStreamTracks(source: MediaSource) {
         val gen = generation
         scope.launch {
-            val tracks = try { TorrentEngine.mkvTracks(source) } catch (_: Exception) { return@launch }
+            val tracks = try {
+                TorrentEngine.mkvTracks(source)
+            } catch (e: Exception) {
+                Log.w(TAG, "mkv tracks failed", e)
+                onOsd?.invoke("Не удалось прочитать встроенные субтитры: ${e.message}")
+                return@launch
+            }
             if (gen != generation) return@launch
             streamTracks = tracks.filter { it.text }
+            Log.i(TAG, "mkv tracks: " + tracks.joinToString { "${it.number}:${it.codec}:${it.language}:text=${it.text}" })
             autoSelectSubtitles()
             onChange?.invoke()
         }
@@ -282,6 +290,7 @@ class PlayerController(context: Context) {
     }
 
     private fun apply(source: SubtitleSource, slot: SubtitleSlot) {
+        Log.i(TAG, "subtitles $slot -> $source")
         // VLC can draw only one subtitle track: the other slot gives it up.
         if (source.kind == SourceKind.EMBEDDED) {
             val other = if (slot == SubtitleSlot.PRIMARY) SubtitleSlot.SECONDARY else SubtitleSlot.PRIMARY
@@ -316,12 +325,14 @@ class PlayerController(context: Context) {
                 val data = if (option.url.startsWith("http")) TorrentEngine.getBytes(option.url)
                 else ContentReader.read(option.url)
                 val track = SubtitleParser.parse(data, option.name.substringAfterLast('.', ""))
+                Log.i(TAG, "subtitle file loaded: ${option.name}")
                 parsedTracks[id] = track
                 if (sourceFor(slot) == SubtitleSource.file(id)) {
                     setSlot(SubtitleSource.file(id), track, slot)
                     refreshSubtitleText()
                 }
             } catch (e: Exception) {
+                Log.w(TAG, "subtitle file failed: ${option.name}", e)
                 onOsd?.invoke("Не удалось загрузить «${option.name}»: ${e.message}")
                 if (sourceFor(slot) == SubtitleSource.file(id)) setSlot(SubtitleSource.OFF, null, slot)
             }
@@ -406,10 +417,16 @@ class PlayerController(context: Context) {
             liveLoading.add(number)
             val gen = generation
             scope.launch {
-                val cues = try { TorrentEngine.mkvCues(source, number, from, to) } catch (_: Exception) { null }
+                val cues = try {
+                    TorrentEngine.mkvCues(source, number, from, to)
+                } catch (e: Exception) {
+                    Log.w(TAG, "mkv cues failed for track $number", e)
+                    null
+                }
                 if (gen != generation) return@launch
                 liveLoading.remove(number)
                 if (cues == null) return@launch
+                Log.i(TAG, "mkv cues track $number [$from, $to]: ${cues.size}")
                 liveTracks[number]?.merge(cues)
                 val cov = liveCoverage[number]
                 liveCoverage[number] = if (extending && cov != null && cov.second >= from) Pair(cov.first, to) else Pair(from, to)
@@ -455,6 +472,7 @@ class PlayerController(context: Context) {
         currentAudioTrack = player.audioTrack
         val subs = (player.spuTracks ?: emptyArray()).filter { it.id >= 0 }.map { TrackOption(it.id, it.name ?: "Дорожка ${it.id}") }
         if (subs != embeddedSubtitles) {
+            Log.i(TAG, "vlc spu tracks: " + subs.joinToString { "${it.id}:${it.name}" })
             embeddedSubtitles = subs
             autoSelectSubtitles()
         }
@@ -463,6 +481,8 @@ class PlayerController(context: Context) {
     }
 
     companion object {
+        const val TAG = "MediaPlayer"
+
         // libVLC player states (org.videolan.libvlc.interfaces.IMedia.State).
         const val STATE_OPENING = 1
         const val STATE_BUFFERING = 2
