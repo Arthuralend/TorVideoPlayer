@@ -1,6 +1,6 @@
 # MediaPlayer
 
-**MediaPlayer** — плеер для **macOS и Windows**, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
+**MediaPlayer** — плеер для **macOS, Windows и Android**, который воспроизводит торренты **онлайн, не дожидаясь полной загрузки** (как Ace Stream / Soda Player), на базе **VLC** (VLCKit) с поддержкой **двойных субтитров**.
 
 <img src="assets/icon-1024.png" width="160" alt="MediaPlayer icon">
 
@@ -36,6 +36,12 @@
    xattr -dr com.apple.quarantine "/Applications/MediaPlayer.app"
    ```
    (или: правый клик по приложению → «Открыть» → «Открыть»; на macOS 15 — «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть»).
+
+### Android 8+
+
+- `MediaPlayer-Android-arm64.apk` — для большинства телефонов и планшетов; `MediaPlayer-Android.apk` — универсальный, если первый не ставится.
+- Откройте APK на телефоне и разрешите установку из этого источника. Magnet-ссылки из браузера и .torrent файлы открываются в MediaPlayer; ссылку можно и «Поделиться» → MediaPlayer.
+- Управление: касание — показать/скрыть кнопки, двойное касание слева/справа — ∓10 с, в центре — пауза.
 
 ### Windows
 
@@ -79,6 +85,7 @@
 
 - `engine/` — торрент-движок на Go: DHT, трекеры, PEX, uTP/TCP. Отдаёт файлы по HTTP с поддержкой Range, поэтому VLC может перематывать. Сам завершается вместе с приложением и удаляет временные файлы (их можно сохранять — см. настройки).
 - `App/Sources/` — приложение для macOS на Swift/SwiftUI + VLCKit.
+- `android/` — приложение для Android на Kotlin + libVLC, движок встроен как `libtorengine.so`.
 - `windows/MediaPlayer/` — приложение для Windows на C#/WPF (.NET 8) + LibVLCSharp, тот же движок (`torengine.exe`).
 
 Загрузки лежат в `~/Library/Caches/TorVideoPlayer/Downloads` и удаляются при выходе (если не включено «Сохранять скачанные файлы»). Лог движка: `~/Library/Caches/TorVideoPlayer/engine.log`.
@@ -112,7 +119,7 @@ dotnet publish windows/MediaPlayer/MediaPlayer.csproj -c Release -o build/window
 iscc windows/installer.iss                              # → build/MediaPlayer-Setup-x64.exe
 ```
 
-Каждый push в `main` собирается в GitHub Actions (macOS и Windows) и публикует релиз с DMG, установщиком и zip-архивом.
+Каждый push в `main` собирается в GitHub Actions (macOS, Windows, Android) и публикует релиз с DMG, установщиком, zip-архивом и APK.
 
 ## Другие программы для macOS (для сравнения)
 
