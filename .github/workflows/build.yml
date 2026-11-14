@@ -300,12 +300,14 @@ jobs:
         run: |
           [ -f screen.png ] || exit 0
           pip install -q pillow
-          python3 -c "
+          for f in screen.png screen2.png; do
+          [ -f $f ] && python3 -c "
           from PIL import Image; import base64, io
-          im = Image.open('screen.png').convert('RGB'); im.thumbnail((480, 480))
+          im = Image.open('$f').convert('RGB'); im.thumbnail((480, 480))
           b = io.BytesIO(); im.save(b, 'JPEG', quality=55)
-          print('::notice title=screenshot::' + base64.b64encode(b.getvalue()).decode())
+          print('::notice title=$f::' + base64.b64encode(b.getvalue()).decode())
           "
+          done
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -314,6 +316,7 @@ jobs:
           path: |
             app-log.txt
             screen.png
+            screen2.png
           if-no-files-found: ignore
 
   release:

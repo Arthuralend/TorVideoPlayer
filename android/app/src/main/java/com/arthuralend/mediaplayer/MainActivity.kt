@@ -26,6 +26,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.PopupWindow
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -65,6 +67,7 @@ class MainActivity : Activity() {
     private val stackedSub by lazy { findViewById<TextView>(R.id.stackedSub) }
     private val topSub by lazy { findViewById<TextView>(R.id.topSub) }
     private val osd by lazy { findViewById<TextView>(R.id.osd) }
+    private val bottomSubs by lazy { findViewById<View>(R.id.bottomSubs) }
 
     private var hidePending = false
     private var lastLoggedPrimary: String? = null
@@ -76,6 +79,42 @@ class MainActivity : Activity() {
     }
     private val hideOsd = Runnable { osd.visibility = View.GONE }
 
+    /**
+     * Subtitles live in their own transparent, touch-through window above the
+     * activity: on many devices the video surface covers ordinary views drawn
+     * over it, so text inside the activity window could end up hidden.
+     */
+    private val subtitlePopup: PopupWindow by lazy {
+        val layer = findViewById<View>(R.id.subtitleLayer)
+        (layer.parent as ViewGroup).removeView(layer)
+        PopupWindow(layer, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, false).apply {
+            isTouchable = false
+            isClippingEnabled = false
+            animationStyle = 0
+            setBackgroundDrawable(null)
+        }
+    }
+
+    private fun updateSubtitleWindow() {
+        val root = findViewById<View>(R.id.root)
+        val wanted = screen == Screen.PLAYER && hasWindowFocusOrResumed && root.windowToken != null && root.width > 0
+        if (!wanted) {
+            if (subtitlePopup.isShowing) subtitlePopup.dismiss()
+            return
+        }
+        val loc = IntArray(2)
+        root.getLocationOnScreen(loc)
+        if (!subtitlePopup.isShowing) {
+            subtitlePopup.width = root.width
+            subtitlePopup.height = root.height
+            subtitlePopup.showAtLocation(root, Gravity.NO_GRAVITY, loc[0], loc[1])
+        } else {
+            subtitlePopup.update(loc[0], loc[1], root.width, root.height)
+        }
+    }
+
+    private var hasWindowFocusOrResumed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(this)
@@ -83,6 +122,8 @@ class MainActivity : Activity() {
         ContentReader.init(this)
         getExternalFilesDir(null) // create the app folder in shared storage
         setContentView(R.layout.activity_main)
+        // Resolve the subtitle views now: they move to their own window later.
+        listOf(primarySub, stackedSub, topSub, bottomSubs)
 
         player = PlayerController(this)
         player.onChange = { renderPlayer() }
@@ -91,6 +132,8 @@ class MainActivity : Activity() {
 
         setupHome()
         setupPlayer()
+        // Follow size changes (rotation, fullscreen) with the subtitle window.
+        findViewById<View>(R.id.root).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateSubtitleWindow() }
         findViewById<Button>(R.id.btnFilesBack).setOnClickListener { goHome() }
         findViewById<Button>(R.id.btnCancel).setOnClickListener { cancelLoading() }
 
@@ -118,6 +161,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (subtitlePopup.isShowing) subtitlePopup.dismiss()
         scope.cancel()
         player.onChange = null
         player.release()
@@ -144,11 +188,20 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && screen == Screen.PLAYER) setFullscreenPlayer(true)
+        if (hasFocus) window.decorView.post { updateSubtitleWindow() }
     }
 
     override fun onResume() {
         super.onResume()
+        hasWindowFocusOrResumed = true
         if (screen == Screen.PLAYER) window.decorView.post { setFullscreenPlayer(true) }
+        window.decorView.post { updateSubtitleWindow() }
+    }
+
+    override fun onPause() {
+        hasWindowFocusOrResumed = false
+        updateSubtitleWindow()
+        super.onPause()
     }
 
     // MARK: Intents
@@ -457,6 +510,7 @@ class MainActivity : Activity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+        findViewById<View>(R.id.root).post { updateSubtitleWindow() }
         renderPlayer()
     }
 
@@ -629,7 +683,7 @@ class MainActivity : Activity() {
             lastLoggedPrimary = p
             lastLoggedSecondary = s
             android.util.Log.i(PlayerController.TAG, "overlay primary=${p?.replace('\n', '|')} secondary=${s?.replace('\n', '|')} " +
-                "shown=${primarySub.isShown} h=${primarySub.height}")
+                "shown=${primarySub.isShown} h=${primarySub.height} popup=${subtitlePopup.isShowing}")
         }
         primarySub.show(p, size, Color.WHITE)
         topSub.show(if (top) s else null, size * 0.92f, secondaryColor())
@@ -638,8 +692,8 @@ class MainActivity : Activity() {
         // Leave room for VLC's own (embedded) subtitle line and for the controls.
         val vlcLine = if (player.vlcRendersSubtitle) size * 2.8f else 0f
         val bottom = maxOf(if (controlsVisible) 110f else 0f, 20f + vlcLine)
-        (findViewById<View>(R.id.bottomSubs).layoutParams as FrameLayout.LayoutParams).let {
-            if (it.bottomMargin != dp(bottom)) { it.bottomMargin = dp(bottom); findViewById<View>(R.id.bottomSubs).layoutParams = it }
+        (bottomSubs.layoutParams as FrameLayout.LayoutParams).let {
+            if (it.bottomMargin != dp(bottom)) { it.bottomMargin = dp(bottom); bottomSubs.layoutParams = it }
         }
         (topSub.layoutParams as FrameLayout.LayoutParams).let {
             val m = dp(if (controlsVisible) 64f else 16f)
