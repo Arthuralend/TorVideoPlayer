@@ -13,7 +13,10 @@
     <RootNamespace>MediaPlayerApp</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Version>1.2.1</Version>
-    <Product>MediaPlayer</Product>
+    <Product>FS MediaPlayer</Product>
+    <Company>FantasticSoftware</Company>
+    <Authors>FantasticSoftware</Authors>
+    <Copyright>© 2026 FantasticSoftware (armenoid@gmail.com)</Copyright>
     <Description>Torrent streaming video player based on VLC with dual subtitles</Description>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>

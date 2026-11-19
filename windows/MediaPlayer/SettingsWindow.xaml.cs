@@ -46,17 +46,23 @@ public partial class SettingsWindow : Window
         Process.Start(new ProcessStartInfo("explorer.exe", TorrentEngine.DownloadsDirectory) { UseShellExecute = true });
     }
 
+    private void Mail_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true }); } catch { }
+        e.Handled = true;
+    }
+
     private void Associate_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             Associations.Register();
-            MessageBox.Show(this, "Готово. Magnet-ссылки и .torrent файлы теперь открываются в MediaPlayer.\n\nЕсли Windows спросит, каким приложением открывать, выберите MediaPlayer.",
-                "MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "Готово. Magnet-ссылки и .torrent файлы теперь открываются в FS MediaPlayer.\n\nЕсли Windows спросит, каким приложением открывать, выберите FS MediaPlayer.",
+                "FS MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, "FS MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 }

@@ -32,7 +32,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             LogCrash(args.Exception);
-            MessageBox.Show($"Произошла ошибка:\n{args.Exception.Message}\n\nПодробности: {CrashLogPath}", "MediaPlayer",
+            MessageBox.Show($"Произошла ошибка:\n{args.Exception.Message}\n\nПодробности: {CrashLogPath}", "FS MediaPlayer",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };

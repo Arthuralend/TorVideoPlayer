@@ -16,3 +16,5 @@ build() {
 build arm64-v8a arm64 "" android
 build armeabi-v7a arm 7 linux
 build x86_64 amd64 "" linux
+# Only for the universal APK (x86 Android TV emulators, rare Intel TV boxes).
+build x86 386 "" linux

@@ -30,7 +30,7 @@ struct TorVideoPlayerApp: App {
     @StateObject private var state = AppState.shared
 
     var body: some Scene {
-        Window("MediaPlayer", id: "main") {
+        Window("FS MediaPlayer", id: "main") {
             ContentView()
                 .environmentObject(state)
                 .environmentObject(state.player)

@@ -2,10 +2,13 @@ package com.arthuralend.mediaplayer
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.UiModeManager
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
@@ -15,6 +18,7 @@ import android.os.Looper
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -39,6 +43,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.videolan.libvlc.util.VLCVideoLayout
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -58,6 +63,23 @@ class MainActivity : Activity() {
     private var controlsVisible = true
     private var seeking = false
     private var resumeOnStart = false
+
+    /** Android TV / TV box: remote control, no touchscreen. */
+    private val isTv by lazy {
+        (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    }
+
+    /** Target of a seek made with the remote; applied once the key is released. */
+    private var pendingSeekMs: Long? = null
+    private val applyPendingSeek = Runnable {
+        pendingSeekMs?.let { player.seekToMs(it) }
+        pendingSeekMs = null
+        seeking = false
+        if (controlsVisible) pokeControls()
+    }
+    private var pendingBrowseRequest = 0
 
     private val videoLayout by lazy { findViewById<VLCVideoLayout>(R.id.videoLayout) }
     private val input by lazy { findViewById<EditText>(R.id.input) }
@@ -132,6 +154,7 @@ class MainActivity : Activity() {
 
         setupHome()
         setupPlayer()
+        adaptLayout()
         // Follow size changes (rotation, fullscreen) with the subtitle window.
         findViewById<View>(R.id.root).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateSubtitleWindow() }
         findViewById<Button>(R.id.btnFilesBack).setOnClickListener { goHome() }
@@ -172,7 +195,8 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (screen) {
-            Screen.PLAYER -> closePlayer()
+            // With a remote, Back first hides the controls, then leaves the player.
+            Screen.PLAYER -> if (isTv && controlsVisible && player.hasMedia && player.isPlaying) setControlsVisible(false) else closePlayer()
             Screen.FILES -> goHome()
             Screen.LOADING -> cancelLoading()
             Screen.HOME -> super.onBackPressed()
@@ -181,6 +205,7 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        adaptLayout()
         if (screen == Screen.PLAYER) setFullscreenPlayer(true)
         renderPlayer()
     }
@@ -236,13 +261,7 @@ class MainActivity : Activity() {
             val text = clipboardText()
             if (text.isNullOrBlank()) toast("Буфер обмена пуст") else { input.setText(text); open(text) }
         }
-        findViewById<Button>(R.id.btnOpenFile).setOnClickListener {
-            val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            }
-            startActivityForResult(pick, REQUEST_OPEN_FILE)
-        }
+        findViewById<Button>(R.id.btnOpenFile).setOnClickListener { pickFile(REQUEST_OPEN_FILE) }
         findViewById<Button>(R.id.btnSettings).setOnClickListener { showSettings() }
         findViewById<Button>(R.id.btnClearRecents).setOnClickListener { Prefs.recents = emptyList(); renderRecents() }
         renderRecents()
@@ -279,12 +298,11 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundResource(R.drawable.panel_bg)
+            setBackgroundResource(R.drawable.row_bg)
             setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
             isClickable = true
             isFocusable = true
-            foreground = getDrawable(TypedValue().also { theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true) }.resourceId)
         }
         val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         texts.addView(TextView(this).apply {
@@ -401,7 +419,7 @@ class MainActivity : Activity() {
         list.removeAllViews()
         for (f in t.playableFiles) {
             val title = (if (f == currentFile) "▶ " else "") + f.name
-            list.addView(listRow(title, Format.bytes(f.length), f.directory).apply { setOnClickListener { play(f) } })
+            list.addView(listRow(title, Format.bytes(f.length), f.directory).apply { tag = f.index; setOnClickListener { play(f) } })
         }
     }
 
@@ -503,12 +521,19 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.loadingPanel).visibility = if (s == Screen.LOADING) View.VISIBLE else View.GONE
         findViewById<View>(R.id.filesPanel).visibility = if (s == Screen.FILES) View.VISIBLE else View.GONE
         val inPlayer = s == Screen.PLAYER
+        // The player stays laid out underneath the other screens: keep the
+        // remote's focus out of its (hidden) buttons.
+        findViewById<ViewGroup>(R.id.playerPanel).descendantFocusability =
+            if (inPlayer) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
         setFullscreenPlayer(inPlayer)
         if (inPlayer) {
             setControlsVisible(true)
+            if (isTv) findViewById<View>(R.id.btnPlay).requestFocus()
         } else {
+            cancelPendingSeek()
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            focusScreen(s)
         }
         findViewById<View>(R.id.root).post { updateSubtitleWindow() }
         renderPlayer()
@@ -548,6 +573,37 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Puts the remote's focus on something sensible on the screen just shown. */
+    private fun focusScreen(s: Screen) {
+        if (!isTv) return
+        when (s) {
+            Screen.HOME -> findViewById<View>(R.id.btnWatch).requestFocus()
+            Screen.LOADING -> findViewById<View>(R.id.btnCancel).requestFocus()
+            Screen.FILES -> {
+                val list = findViewById<LinearLayout>(R.id.filesList)
+                val current = (0 until list.childCount).map { list.getChildAt(it) }
+                    .firstOrNull { (it.tag as? Int) == currentFile?.index }
+                (current ?: list.getChildAt(0) ?: findViewById(R.id.btnFilesBack)).requestFocus()
+            }
+            Screen.PLAYER -> {}
+        }
+    }
+
+    /** TV: room for overscan and no rotate button; wide screens: a centred home column. */
+    private fun adaptLayout() {
+        val wide = resources.configuration.screenWidthDp >= 720
+        findViewById<View>(R.id.homeContent).let { v ->
+            val lp = v.layoutParams as FrameLayout.LayoutParams
+            val w = if (wide) dp(640) else ViewGroup.LayoutParams.MATCH_PARENT
+            if (lp.width != w) { lp.width = w; lp.gravity = Gravity.CENTER_HORIZONTAL; v.layoutParams = lp }
+        }
+        if (isTv) {
+            findViewById<View>(R.id.btnRotate).visibility = View.GONE
+            findViewById<View>(R.id.controls).setPadding(dp(36), dp(20), dp(36), dp(20))
+            findViewById<View>(R.id.filesPanel).setPadding(dp(48), dp(27), dp(48), dp(27))
+        }
+    }
+
     private fun android.view.Window.setDecorFitsSystemWindowsCompat(fits: Boolean) {
         if (android.os.Build.VERSION.SDK_INT >= 30) setDecorFitsSystemWindows(fits)
     }
@@ -570,6 +626,12 @@ class MainActivity : Activity() {
             pokeControls()
         }
 
+        // Remote: left/right on the focused seek bar jump through the video.
+        seekBar.setOnKeyListener { _, keyCode, event ->
+            if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return@setOnKeyListener false
+            if (event.action == KeyEvent.ACTION_DOWN) keySeek(if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1, event.repeatCount)
+            true
+        }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                 if (fromUser) findViewById<TextView>(R.id.timeText).text = Format.time(progress * player.lengthMs / 10000)
@@ -604,11 +666,118 @@ class MainActivity : Activity() {
             detector.onTouchEvent(ev)
         }
         controls.setOnClickListener { setControlsVisible(false) }
+        // Only the buttons themselves should take the remote's focus.
+        controls.isFocusable = false
     }
 
     private fun scheduleHide() {
         hidePending = true
-        handler.postDelayed(hideControls, 3500)
+        handler.postDelayed(hideControls, if (isTv) 5000 else 3500)
+    }
+
+    // MARK: Remote control
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (screen == Screen.PLAYER && handlePlayerKey(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun handlePlayerKey(e: KeyEvent): Boolean {
+        val down = e.action == KeyEvent.ACTION_DOWN
+        val first = down && e.repeatCount == 0
+        // Media keys of the remote work whether or not the controls are shown.
+        when (e.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> {
+                if (first) { player.togglePlay(); pokeControls() }
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                if (first && !player.isPlaying) { player.togglePlay(); pokeControls() }
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                if (first) { player.pause(); pokeControls() }
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_STOP -> {
+                if (first) closePlayer()
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                if (down) keySeek(1, e.repeatCount)
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                if (down) keySeek(-1, e.repeatCount)
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                if (first) playNext()
+                return true
+            }
+            KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_PROG_YELLOW -> {
+                if (first) showSubtitleDialog()
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK, KeyEvent.KEYCODE_PROG_GREEN -> {
+                if (first) showAudioDialog()
+                return true
+            }
+        }
+        if (!controlsVisible) {
+            when (e.keyCode) {
+                // Hidden controls: left/right seek, OK and up/down bring the controls back.
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (down) keySeek(if (e.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1, e.repeatCount)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_SPACE -> {
+                    if (first) {
+                        setControlsVisible(true)
+                        findViewById<View>(R.id.btnPlay).requestFocus()
+                    }
+                    return true
+                }
+            }
+            return false
+        }
+        // Any key keeps the controls on screen a little longer.
+        if (down && player.isPlaying && !seeking) {
+            handler.removeCallbacks(hideControls)
+            scheduleHide()
+        }
+        return false
+    }
+
+    /** Seeks with the remote; holding the key speeds up. Applied after a short pause. */
+    private fun keySeek(direction: Int, repeat: Int) {
+        if (!player.hasMedia) return
+        val step = when {
+            repeat > 30 -> 60_000L
+            repeat > 8 -> 30_000L
+            else -> 10_000L
+        }
+        val length = player.lengthMs
+        var target = (pendingSeekMs ?: player.timeMs) + direction * step
+        target = if (length > 0) target.coerceIn(0, maxOf(0, length - 1000)) else maxOf(0, target)
+        pendingSeekMs = target
+        seeking = true
+        handler.removeCallbacks(hideControls)
+        hidePending = false
+        findViewById<TextView>(R.id.timeText).text = Format.time(target)
+        if (length > 0) seekBar.progress = (target * 10000 / length).toInt()
+        val delta = (target - player.timeMs) / 1000
+        showOsd((if (delta >= 0) "▶▶ +" else "◀◀ −") + Format.time(Math.abs(delta) * 1000) + "  ·  " + Format.time(target) +
+            (if (length > 0) " / " + Format.time(length) else ""))
+        handler.removeCallbacks(applyPendingSeek)
+        handler.postDelayed(applyPendingSeek, 700)
+    }
+
+    private fun cancelPendingSeek() {
+        handler.removeCallbacks(applyPendingSeek)
+        if (pendingSeekMs != null) seeking = false
+        pendingSeekMs = null
     }
 
     private fun pokeControls() {
@@ -787,9 +956,7 @@ class MainActivity : Activity() {
             text = "Из файла…"; isAllCaps = false
             setOnClickListener {
                 dialog.dismiss()
-                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
-                }, REQUEST_OPEN_SUBTITLE)
+                pickFile(REQUEST_OPEN_SUBTITLE)
             }
         })
         box.addView(actions)
@@ -888,6 +1055,17 @@ class MainActivity : Activity() {
             isChecked = Prefs.keepDownloads
         }
         box.addView(keep)
+        val version = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "" }
+        box.addView(TextView(this).apply {
+            text = "О программе"
+            setTextColor(getColor(R.color.fg_dim))
+            setPadding(0, dp(18), 0, dp(4))
+        })
+        box.addView(TextView(this).apply {
+            text = "${getString(R.string.app_name)} $version\nРазработчик: ${getString(R.string.developer)}\n${getString(R.string.developer_email)}"
+            setTextColor(getColor(R.color.fg))
+            setLineSpacing(0f, 1.15f)
+        })
         AlertDialog.Builder(this)
             .setTitle("Настройки")
             .setView(ScrollView(this).apply { addView(box) })
@@ -902,21 +1080,93 @@ class MainActivity : Activity() {
             .show()
     }
 
+    // MARK: Picking files
+
+    private fun acceptsFile(requestCode: Int, file: File): Boolean {
+        val ext = file.extension.lowercase()
+        return if (requestCode == REQUEST_OPEN_SUBTITLE) ext in SubtitleParser.SUPPORTED_EXTENSIONS
+        else ext in VIDEO_EXTENSIONS || ext == "torrent" || ext in SubtitleParser.SUPPORTED_EXTENSIONS
+    }
+
+    /** The system picker opened by "Другое приложение…" or as the default on phones; false if none exists. */
+    private fun launchSystemPicker(requestCode: Int): Boolean {
+        val intents = listOf(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
+            Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
+        )
+        for (intent in intents) {
+            if (intent.resolveActivity(packageManager) == null) continue
+            try { startActivityForResult(intent, requestCode); return true } catch (_: ActivityNotFoundException) {} catch (_: SecurityException) {}
+        }
+        return false
+    }
+
+    /**
+     * Phones use the system picker; Android TV (which usually has none) and
+     * phones without one get the built-in browser.
+     */
+    private fun pickFile(requestCode: Int) {
+        if (!isTv && launchSystemPicker(requestCode)) return
+        openBrowser(requestCode)
+    }
+
+    private fun storagePermissions(): Array<String> =
+        if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf("android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO")
+        else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+
+    private fun openBrowser(requestCode: Int) {
+        val missing = storagePermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty() && pendingBrowseRequest == 0) {
+            pendingBrowseRequest = requestCode
+            requestPermissions(missing.toTypedArray(), REQUEST_STORAGE)
+            return
+        }
+        pendingBrowseRequest = 0
+        val hasSystemPicker = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .resolveActivity(packageManager) != null ||
+            Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").resolveActivity(packageManager) != null
+        FileBrowser(
+            this,
+            accept = { acceptsFile(requestCode, it) },
+            onPick = { file -> onFilePicked(requestCode, Uri.fromFile(file)) },
+            systemPicker = if (hasSystemPicker) ({ if (!launchSystemPicker(requestCode)) toast("Нет приложения для выбора файлов") }) else null,
+        ).show()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_STORAGE && pendingBrowseRequest != 0) {
+            val request = pendingBrowseRequest
+            // Show whatever is readable even if access was refused.
+            openBrowser(request)
+        }
+    }
+
+    private fun onFilePicked(requestCode: Int, uri: Uri) {
+        when (requestCode) {
+            REQUEST_OPEN_FILE -> {
+                if (uri.scheme == "file") {
+                    val name = ContentReader.displayName(uri)
+                    if (name.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS) rememberRecent(uri.toString(), name)
+                }
+                openFile(uri)
+            }
+            REQUEST_OPEN_SUBTITLE -> player.addSubtitleFile(ContentReader.displayName(uri), uri.toString())
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
-        when (requestCode) {
-            REQUEST_OPEN_FILE -> openFile(uri)
-            REQUEST_OPEN_SUBTITLE -> player.addSubtitleFile(ContentReader.displayName(uri), uri.toString())
-        }
+        onFilePicked(requestCode, uri)
     }
 
     // MARK: Helpers
 
     private fun error(message: String) {
-        AlertDialog.Builder(this).setTitle("MediaPlayer").setMessage(message).setPositiveButton("OK", null).show()
+        AlertDialog.Builder(this).setTitle(getString(R.string.app_name)).setMessage(message).setPositiveButton("OK", null).show()
     }
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -931,6 +1181,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_OPEN_FILE = 1
         private const val REQUEST_OPEN_SUBTITLE = 2
+        private const val REQUEST_STORAGE = 3
         val VIDEO_EXTENSIONS = setOf(
             "mkv", "mp4", "m4v", "avi", "mov", "wmv", "webm", "ts", "m2ts", "mts", "mpg", "mpeg",
             "flv", "ogv", "3gp", "vob", "divx", "rmvb", "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav",

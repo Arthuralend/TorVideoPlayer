@@ -37,6 +37,9 @@ object Prefs {
     var secondaryColor: String
         get() = sp.getString("secondaryColor", "yellow") ?: "yellow"
         set(v) = sp.edit().putString("secondaryColor", v).apply()
+    var lastBrowseDir: String?
+        get() = sp.getString("lastBrowseDir", null)
+        set(v) = sp.edit().putString("lastBrowseDir", v).apply()
     var subBackground: Boolean
         get() = sp.getBoolean("subBackground", true)
         set(v) = sp.edit().putBoolean("subBackground", v).apply()

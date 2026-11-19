@@ -31,7 +31,7 @@ public partial class MainWindow : Window
         DataContext = state;
         state.PropertyChanged += State_PropertyChanged;
         Player.PropertyChanged += Player_PropertyChanged;
-        state.Error += message => MessageBox.Show(this, message, "MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Warning);
+        state.Error += message => MessageBox.Show(this, message, "FS MediaPlayer", MessageBoxButton.OK, MessageBoxImage.Warning);
         hideTimer.Tick += (_, _) => HideControls();
         PreviewKeyDown += (_, e) => e.Handled = HandleKey(e.Key);
         Drop += (_, e) => HandleDrop(e);

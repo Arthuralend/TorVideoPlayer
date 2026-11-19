@@ -1,4 +1,4 @@
-; Inno Setup script for MediaPlayer (Windows x64). Built by CI:
+; Inno Setup script for FS MediaPlayer (Windows x64). Built by CI:
 ;   iscc /DAppVersion=1.2.0 windows\installer.iss
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -6,19 +6,22 @@
 
 [Setup]
 AppId={{6F1B6A0C-3E5B-4C55-9F0E-8E6D2B7C4A11}
-AppName=MediaPlayer
+AppName=FS MediaPlayer
 AppVersion={#AppVersion}
-AppPublisher=Arthuralend
+AppPublisher=FantasticSoftware
+AppContact=armenoid@gmail.com
+AppSupportURL=mailto:armenoid@gmail.com
+AppCopyright=© 2026 FantasticSoftware
 AppPublisherURL=https://github.com/Arthuralend/TorVideoPlayer
-DefaultDirName={autopf}\MediaPlayer
-DefaultGroupName=MediaPlayer
+DefaultDirName={autopf}\FS MediaPlayer
+DefaultGroupName=FS MediaPlayer
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\build
-OutputBaseFilename=MediaPlayer-Setup-x64
+OutputBaseFilename=FS-MediaPlayer-Setup-x64
 SetupIconFile=MediaPlayer\app.ico
 UninstallDisplayIcon={app}\MediaPlayer.exe
 WizardStyle=modern
@@ -32,14 +35,19 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "associate"; Description: "Открывать magnet-ссылки и .torrent файлы в MediaPlayer"; GroupDescription: "Ассоциации:"
+Name: "associate"; Description: "Открывать magnet-ссылки и .torrent файлы в FS MediaPlayer"; GroupDescription: "Ассоциации:"
 
 [Files]
 Source: "..\build\windows\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; Shortcuts from versions released under the old name.
+Type: files; Name: "{autoprograms}\MediaPlayer.lnk"
+Type: files; Name: "{autodesktop}\MediaPlayer.lnk"
+
 [Icons]
-Name: "{autoprograms}\MediaPlayer"; Filename: "{app}\MediaPlayer.exe"
-Name: "{autodesktop}\MediaPlayer"; Filename: "{app}\MediaPlayer.exe"; Tasks: desktopicon
+Name: "{autoprograms}\FS MediaPlayer"; Filename: "{app}\MediaPlayer.exe"
+Name: "{autodesktop}\FS MediaPlayer"; Filename: "{app}\MediaPlayer.exe"; Tasks: desktopicon
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: ""; ValueData: "URL:Magnet link"; Tasks: associate; Flags: uninsdeletekey
@@ -53,7 +61,7 @@ Root: HKA; Subkey: "Software\Classes\.torrent"; ValueType: string; ValueName: ""
 Root: HKA; Subkey: "Software\Classes\.torrent\OpenWithProgids"; ValueType: none; ValueName: "MediaPlayer.Torrent"; Tasks: associate; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\MediaPlayer.exe"; Description: "{cm:LaunchProgram,MediaPlayer}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\MediaPlayer.exe"; Description: "{cm:LaunchProgram,FS MediaPlayer}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/F /IM torengine.exe"; Flags: runhidden; RunOnceId: "KillEngine"

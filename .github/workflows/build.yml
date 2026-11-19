@@ -109,8 +109,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaPlayer-dmg
-          path: build/MediaPlayer.dmg
+          name: FS-MediaPlayer-dmg
+          path: build/FS-MediaPlayer.dmg
 
   windows:
     runs-on: windows-latest
@@ -171,7 +171,7 @@ jobs:
 
       - name: Zip portable version
         shell: pwsh
-        run: Compress-Archive -Path build/windows/publish/* -DestinationPath build/MediaPlayer-Windows-x64.zip
+        run: Compress-Archive -Path build/windows/publish/* -DestinationPath build/FS-MediaPlayer-Windows-x64.zip
 
       - name: Build installer
         shell: pwsh
@@ -184,10 +184,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaPlayer-windows
+          name: FS-MediaPlayer-windows
           path: |
-            build/MediaPlayer-Setup-x64.exe
-            build/MediaPlayer-Windows-x64.zip
+            build/FS-MediaPlayer-Setup-x64.exe
+            build/FS-MediaPlayer-Windows-x64.zip
 
   android:
     runs-on: ubuntu-latest
@@ -234,28 +234,41 @@ jobs:
       - name: Collect APKs
         run: |
           ls -la android/app/build/outputs/apk/release/
-          cp android/app/build/outputs/apk/release/app-universal-release.apk build-MediaPlayer-Android.apk
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk build-MediaPlayer-Android-arm64.apk
-          mkdir -p build && mv build-MediaPlayer-Android.apk build/MediaPlayer-Android.apk && mv build-MediaPlayer-Android-arm64.apk build/MediaPlayer-Android-arm64.apk
-          unzip -l build/MediaPlayer-Android-arm64.apk | grep -E "libtorengine|libvlc" 
+          cp android/app/build/outputs/apk/release/app-universal-release.apk build-FS-MediaPlayer-Android.apk
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk build-FS-MediaPlayer-Android-arm64.apk
+          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk build-FS-MediaPlayer-Android-armv7.apk
+          mkdir -p build && mv build-FS-MediaPlayer-Android.apk build/FS-MediaPlayer-Android.apk && mv build-FS-MediaPlayer-Android-arm64.apk build/FS-MediaPlayer-Android-arm64.apk
+          mv build-FS-MediaPlayer-Android-armv7.apk build/FS-MediaPlayer-Android-armv7.apk
+          unzip -l build/FS-MediaPlayer-Android-arm64.apk | grep -E "libtorengine|libvlc" 
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaPlayer-android
+          name: FS-MediaPlayer-android
           path: |
-            build/MediaPlayer-Android.apk
-            build/MediaPlayer-Android-arm64.apk
+            build/FS-MediaPlayer-Android.apk
+            build/FS-MediaPlayer-Android-arm64.apk
+            build/FS-MediaPlayer-Android-armv7.apk
 
   android-emulator-test:
     needs: [android]
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: default
+            arch: x86_64
+            profile: ""
+          - target: android-tv
+            arch: x86
+            profile: tv_1080p
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
         with:
-          name: MediaPlayer-android
+          name: FS-MediaPlayer-android
           path: dist
 
       - name: Make a test video with two subtitle tracks
@@ -284,10 +297,11 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
-          arch: x86_64
-          target: default
+          arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
           disable-animations: true
-          script: ./scripts/android-emulator-test.sh dist/MediaPlayer-Android.apk test.mkv
+          script: ./scripts/android-emulator-test.sh dist/FS-MediaPlayer-Android.apk test.mkv
 
       - name: Report
         if: always()
@@ -300,7 +314,7 @@ jobs:
         run: |
           [ -f screen.png ] || exit 0
           pip install -q pillow
-          for f in screen.png screen2.png; do
+          for f in screen.png screen2.png screen3.png screen4.png; do
           [ -f $f ] && python3 -c "
           from PIL import Image; import base64, io
           im = Image.open('$f').convert('RGB'); im.thumbnail((480, 480))
@@ -312,11 +326,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-emulator-test
+          name: android-emulator-test-${{ matrix.target }}
           path: |
             app-log.txt
             screen.png
             screen2.png
+            screen3.png
+            screen4.png
           if-no-files-found: ignore
 
   release:
@@ -341,31 +357,35 @@ jobs:
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           target_commitish: ${{ github.sha }}
-          name: MediaPlayer ${{ steps.version.outputs.version }}
+          name: FS MediaPlayer ${{ steps.version.outputs.version }}
           files: |
-            dist/MediaPlayer.dmg
-            dist/MediaPlayer-Setup-x64.exe
-            dist/MediaPlayer-Windows-x64.zip
-            dist/MediaPlayer-Android.apk
-            dist/MediaPlayer-Android-arm64.apk
+            dist/FS-MediaPlayer.dmg
+            dist/FS-MediaPlayer-Setup-x64.exe
+            dist/FS-MediaPlayer-Windows-x64.zip
+            dist/FS-MediaPlayer-Android.apk
+            dist/FS-MediaPlayer-Android-arm64.apk
+            dist/FS-MediaPlayer-Android-armv7.apk
           make_latest: true
           body: |
-            MediaPlayer — торрент-плеер на базе VLC с двойными субтитрами: смотрите торренты онлайн, не дожидаясь полной загрузки.
+            FS MediaPlayer (разработчик — FantasticSoftware) — торрент-плеер на базе VLC с двойными субтитрами: смотрите торренты онлайн, не дожидаясь полной загрузки.
 
             ### macOS 13+ (Apple Silicon и Intel)
-            Скачайте `MediaPlayer.dmg`, перетащите приложение в «Программы», затем один раз выполните в Терминале:
+            Скачайте `FS-MediaPlayer.dmg`, перетащите приложение в «Программы», затем один раз выполните в Терминале:
             ```
-            xattr -dr com.apple.quarantine "/Applications/MediaPlayer.app"
+            xattr -dr com.apple.quarantine "/Applications/FS MediaPlayer.app"
             ```
 
             ### Windows 10/11 (64-бит)
-            - `MediaPlayer-Setup-x64.exe` — установщик (права администратора не нужны). Windows SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».
-            - `MediaPlayer-Windows-x64.zip` — портативная версия: распакуйте и запустите `MediaPlayer.exe`.
+            - `FS-MediaPlayer-Setup-x64.exe` — установщик (права администратора не нужны). Windows SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».
+            - `FS-MediaPlayer-Windows-x64.zip` — портативная версия: распакуйте и запустите `MediaPlayer.exe`.
 
-            ### Android 8+
-            - `MediaPlayer-Android-arm64.apk` — для большинства телефонов и планшетов (64-бит ARM).
-            - `MediaPlayer-Android.apk` — универсальный (если первый не устанавливается).
+            ### Android 8+ и Android TV
+            - `FS-MediaPlayer-Android-arm64.apk` — для большинства телефонов и планшетов (64-бит ARM).
+            - `FS-MediaPlayer-Android-armv7.apk` — для Android TV и ТВ-приставок (у многих из них, например Mi Box и Chromecast с Google TV, 32-битная система) и для старых телефонов.
+            - `FS-MediaPlayer-Android.apk` — универсальный: подходит любому устройству, если не знаете, какой выбрать.
 
-            Откройте APK на телефоне и разрешите установку из этого источника. Magnet-ссылки из браузера открываются в MediaPlayer.
+            Откройте APK на устройстве и разрешите установку из этого источника. Magnet-ссылки из браузера открываются в FS MediaPlayer. На телевизоре всё управляется пультом.
+
+            Разработчик: FantasticSoftware · armenoid@gmail.com
 
             Подробности — в [README](https://github.com/Arthuralend/TorVideoPlayer#readme).
