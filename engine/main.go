@@ -101,6 +101,7 @@ func main() {
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 	log.SetOutput(os.Stderr)
+	setupDNS()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("data dir: %v", err)

@@ -60,8 +60,11 @@ object TorrentEngine {
         val data = downloadsDir()
         if (!keep) data.deleteRecursively()
         data.mkdirs()
-        val pb = ProcessBuilder(exe.path, "-data", data.path, "-cleanup=${!keep}")
-        pb.redirectError(File(appContext.cacheDir, "engine.log"))
+        val args = arrayListOf(exe.path, "-data", data.path, "-cleanup=${!keep}")
+        val dns = deviceDnsServers()
+        if (dns.isNotEmpty()) args += listOf("-dns", dns.joinToString(","))
+        val pb = ProcessBuilder(args)
+        pb.redirectError(logFile())
         val p = pb.start()
         process = p
         // The helper prints "LISTENING <port>" once its HTTP server is up.
@@ -76,6 +79,27 @@ object TorrentEngine {
             }
         }
     }
+
+    fun logFile(): File = File(appContext.cacheDir, "engine.log")
+
+    /** The last lines of the engine's log, for troubleshooting on devices without adb. */
+    fun logTail(lines: Int = 80): String = try {
+        logFile().readLines().takeLast(lines).joinToString("\n")
+    } catch (_: Exception) { "" }
+
+    /**
+     * DNS servers of the current network (router, ISP, VPN). Passed to the
+     * engine, which falls back to them when the system resolver fails.
+     */
+    private fun deviceDnsServers(): List<String> = try {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val networks = listOfNotNull(cm.activeNetwork) + cm.allNetworks.toList()
+        networks.distinct()
+            .flatMap { cm.getLinkProperties(it)?.dnsServers.orEmpty() }
+            .mapNotNull { it.hostAddress?.substringBefore('%') }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    } catch (_: Exception) { emptyList() }
 
     fun stop() {
         val p = process ?: return

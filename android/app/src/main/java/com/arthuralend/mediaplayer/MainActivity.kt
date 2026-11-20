@@ -1066,6 +1066,11 @@ class MainActivity : Activity() {
             setTextColor(getColor(R.color.fg))
             setLineSpacing(0f, 1.15f)
         })
+        box.addView(Button(this).apply {
+            text = "Журнал торрент-движка"
+            isAllCaps = false
+            setOnClickListener { showEngineLog() }
+        })
         AlertDialog.Builder(this)
             .setTitle("Настройки")
             .setView(ScrollView(this).apply { addView(box) })
@@ -1153,6 +1158,27 @@ class MainActivity : Activity() {
             }
             REQUEST_OPEN_SUBTITLE -> player.addSubtitleFile(ContentReader.displayName(uri), uri.toString())
         }
+    }
+
+    /** Shows the engine log: on a TV there is no adb at hand to see why a torrent won't start. */
+    private fun showEngineLog() {
+        val text = TorrentEngine.logTail().ifEmpty { "Журнал пуст." }
+        val view = TextView(this).apply {
+            this.text = text
+            setTextColor(getColor(R.color.fg))
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            isFocusable = true
+        }
+        val scroll = ScrollView(this).apply { addView(view) }
+        AlertDialog.Builder(this)
+            .setTitle("Журнал торрент-движка")
+            .setView(scroll)
+            .setPositiveButton("Закрыть", null)
+            .show()
+        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
     @Deprecated("Deprecated in Java")
