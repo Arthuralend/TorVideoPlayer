@@ -112,6 +112,86 @@ jobs:
           name: FS-MediaPlayer-dmg
           path: build/FS-MediaPlayer.dmg
 
+  # Experimental FS MediaPlayer LT (TorrServer-LT engine, GPL-3.0): built only
+  # when the workflow is started by hand; never published in releases.
+  macos-lt:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Engines
+        run: |
+          ./scripts/build-engine.sh
+          ./scripts/fetch-torrserver-lt.sh
+
+      - name: Generate Xcode project and install VLCKit
+        run: |
+          mkdir -p build
+          xcodegen generate
+          pod install --repo-update
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace TorVideoPlayer.xcworkspace \
+            -scheme FSMediaPlayerLT \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee build/xcodebuild-lt.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          { grep -E "(^|: )error:" -A4 build/xcodebuild-lt.log || true; } | cut -c1-300 | head -60 | while IFS= read -r line; do echo "::error::$line"; done
+          test -d build/DerivedData/Build/Products/Release/FSMediaPlayerLT.app
+
+      - name: Sign, smoke-test and pack
+        run: |
+          APP=build/DerivedData/Build/Products/Release/FSMediaPlayerLT.app
+          codesign --force --deep --sign - "$APP"
+          lipo -info "$APP/Contents/MacOS/torrserver-lt"
+          # TorrServer-LT must start and answer.
+          "$APP/Contents/MacOS/torrserver-lt" --port 18090 --ip 127.0.0.1 --path "$RUNNER_TEMP/ts" &
+          TS=$!
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18090/echo && break; sleep 1; done
+          echo
+          kill $TS || true
+          "$APP/Contents/MacOS/FSMediaPlayerLT" &
+          APP_PID=$!
+          sleep 10
+          kill -0 $APP_PID && echo "App is running"
+          kill $APP_PID || true
+          STAGE=$(mktemp -d)
+          cp -R "$APP" "$STAGE/FS MediaPlayer LT.app"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "FS MediaPlayer LT" -srcfolder "$STAGE" -ov -format UDZO build/FS-MediaPlayer-LT.dmg
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-lt-log
+          path: build/xcodebuild-lt.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FS-MediaPlayer-LT-dmg
+          path: build/FS-MediaPlayer-LT.dmg
+
   windows:
     runs-on: windows-latest
     steps:

@@ -1,5 +1,13 @@
 import Foundation
 
+enum AppInfo {
+    #if LT_ENGINE
+    static let name = "FS MediaPlayer LT"
+    #else
+    static let name = "FS MediaPlayer"
+    #endif
+}
+
 enum EngineError: LocalizedError {
     case missingBinary
     case startFailed
@@ -18,6 +26,8 @@ enum EngineError: LocalizedError {
 enum MediaSource: Hashable {
     case torrent(infoHash: String, fileIndex: Int)
     case local(path: String)
+    /// A file on a local streaming server (TorrServer-LT in the LT build).
+    case http(url: String)
 
     var queryItems: [URLQueryItem] {
         switch self {
@@ -25,6 +35,8 @@ enum MediaSource: Hashable {
             return [URLQueryItem(name: "ih", value: infoHash), URLQueryItem(name: "file", value: String(fileIndex))]
         case .local(let path):
             return [URLQueryItem(name: "path", value: path)]
+        case .http(let url):
+            return [URLQueryItem(name: "url", value: url)]
         }
     }
 
@@ -161,6 +173,9 @@ final class TorrentEngine {
     }
 
     func stop() {
+        #if LT_ENGINE
+        TorrServerLT.shared.stop()
+        #endif
         // Closing stdin makes the helper shut down and clean up.
         try? stdinPipe?.fileHandleForWriting.close()
         if let process, process.isRunning {
@@ -174,22 +189,34 @@ final class TorrentEngine {
     // MARK: API
 
     func add(uri: String) async throws -> TorrentInfo {
+        #if LT_ENGINE
+        return try await TorrServerLT.shared.add(uri: uri)
+        #else
         let base = try await ensureStarted()
         var request = URLRequest(url: base.appendingPathComponent("api/add"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["uri": uri])
         return try await perform(request)
+        #endif
     }
 
     func status(infoHash: String, fileIndex: Int?) async throws -> TorrentStatus {
+        #if LT_ENGINE
+        return try await TorrServerLT.shared.status(infoHash: infoHash)
+        #else
         let base = try await ensureStarted()
         var components = URLComponents(url: base.appendingPathComponent("api/status/\(infoHash)"), resolvingAgainstBaseURL: false)!
         if let fileIndex { components.queryItems = [URLQueryItem(name: "file", value: String(fileIndex))] }
         return try await perform(URLRequest(url: components.url!))
+        #endif
     }
 
     func drop(infoHash: String) async {
+        #if LT_ENGINE
+        await TorrServerLT.shared.drop(infoHash: infoHash)
+        return
+        #endif
         guard let base = baseURL else { return }
         var request = URLRequest(url: base.appendingPathComponent("api/drop/\(infoHash)"))
         request.httpMethod = "POST"
@@ -232,7 +259,19 @@ final class TorrentEngine {
         return components.url!
     }
 
+    /// Where embedded MKV subtitles of a torrent file are read from.
+    func subtitleSource(for file: TorrentFile, in torrent: TorrentInfo) -> MediaSource {
+        #if LT_ENGINE
+        return .http(url: streamURL(for: file)?.absoluteString ?? "")
+        #else
+        return .torrent(infoHash: torrent.infoHash, fileIndex: file.index)
+        #endif
+    }
+
     func streamURL(for file: TorrentFile) -> URL? {
+        #if LT_ENGINE
+        return TorrServerLT.shared.streamURL(for: file)
+        #endif
         guard let base = baseURL else { return nil }
         return URL(string: base.absoluteString + file.streamPath)
     }

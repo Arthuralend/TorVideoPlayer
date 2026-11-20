@@ -25,8 +25,8 @@ type readSeekCloser interface {
 	io.Closer
 }
 
-// openMKVSource opens either a torrent file (?ih=&file=) or a local file
-// (?path=) for reading.
+// openMKVSource opens a torrent file (?ih=&file=), a local file (?path=)
+// or a file on a local HTTP server (?url=) for reading.
 func (s *server) openMKVSource(r *http.Request) (string, readSeekCloser, int64, error) {
 	q := r.URL.Query()
 	if p := q.Get("path"); p != "" {
@@ -40,6 +40,15 @@ func (s *server) openMKVSource(r *http.Request) (string, readSeekCloser, int64, 
 			return "", nil, 0, err
 		}
 		return "path:" + p, f, st.Size(), nil
+	}
+	if u := q.Get("url"); u != "" {
+		// A file served over HTTP by another local streaming server
+		// (TorrServer in the "LT" build), read with Range requests.
+		rd, err := openHTTPFile(r.Context(), u)
+		if err != nil {
+			return "", nil, 0, err
+		}
+		return "url:" + u, rd, rd.size, nil
 	}
 	var h metainfo.Hash
 	if err := h.FromHexString(q.Get("ih")); err != nil {

@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Start the torrent engine early so the first magnet opens faster.
         Task { _ = try? await TorrentEngine.shared.ensureStarted() }
+        #if LT_ENGINE
+        Task { _ = try? await TorrServerLT.shared.ensureStarted() }
+        #endif
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -30,7 +33,7 @@ struct TorVideoPlayerApp: App {
     @StateObject private var state = AppState.shared
 
     var body: some Scene {
-        Window("FS MediaPlayer", id: "main") {
+        Window(AppInfo.name, id: "main") {
             ContentView()
                 .environmentObject(state)
                 .environmentObject(state.player)

@@ -129,6 +129,18 @@ cd TorVideoPlayer
 
 Для разработки: `./scripts/build-engine.sh && xcodegen generate && pod install`, затем откройте `TorVideoPlayer.xcworkspace` в Xcode.
 
+### macOS: экспериментальная сборка FS MediaPlayer LT
+
+Отдельное приложение, в котором торренты качает и раздаёт плееру [TorrServer-LT](https://github.com/trinity-aml/TorrServer-LT) (libtorrent) вместо встроенного движка; наш `torengine` в ней только читает встроенные субтитры MKV. TorrServer-LT распространяется по GPL-3.0, поэтому сборка не публикуется в релизах и делается для личного использования:
+
+```bash
+./scripts/build-engine.sh && ./scripts/fetch-torrserver-lt.sh
+xcodegen generate && pod install
+xcodebuild -workspace TorVideoPlayer.xcworkspace -scheme FSMediaPlayerLT -configuration Release -derivedDataPath build/DerivedData build
+```
+
+В GitHub Actions её собирает ручной запуск workflow (Run workflow) — DMG появляется в артефактах как `FS-MediaPlayer-LT-dmg`.
+
 ### Windows
 
 Нужны .NET 8 SDK и Go (а для установщика — Inno Setup 6):

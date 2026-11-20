@@ -165,7 +165,7 @@ final class AppState: ObservableObject {
         guard let torrent = currentTorrent, let url = TorrentEngine.shared.streamURL(for: file) else { return }
         currentFile = file
         let source: MediaSource? = MediaSource.matroskaExtensions.contains(file.fileExtension)
-            ? .torrent(infoHash: torrent.infoHash, fileIndex: file.index) : nil
+            ? TorrentEngine.shared.subtitleSource(for: file, in: torrent) : nil
         player.open(url: url, title: file.name, subtitleCandidates: subtitleCandidates(for: file, in: torrent), source: source)
         screen = .player
         startStatusPolling()
