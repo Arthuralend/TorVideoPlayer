@@ -304,7 +304,7 @@ jobs:
       - name: Build APKs
         run: |
           set -o pipefail
-          gradle -p android assembleRelease --stacktrace \
+          gradle -p android assembleStandardRelease --stacktrace \
             -PappVersion=${{ steps.version.outputs.version }} -PappVersionCode=${{ steps.version.outputs.code }} 2>&1 | tee android-build.log
         continue-on-error: false
 
@@ -315,10 +315,11 @@ jobs:
 
       - name: Collect APKs
         run: |
-          ls -la android/app/build/outputs/apk/release/
-          cp android/app/build/outputs/apk/release/app-universal-release.apk build-FS-MediaPlayer-Android.apk
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk build-FS-MediaPlayer-Android-arm64.apk
-          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk build-FS-MediaPlayer-Android-armv7.apk
+          O=android/app/build/outputs/apk/standard/release
+          ls -la $O/
+          cp $O/app-standard-universal-release.apk build-FS-MediaPlayer-Android.apk
+          cp $O/app-standard-arm64-v8a-release.apk build-FS-MediaPlayer-Android-arm64.apk
+          cp $O/app-standard-armeabi-v7a-release.apk build-FS-MediaPlayer-Android-armv7.apk
           mkdir -p build && mv build-FS-MediaPlayer-Android.apk build/FS-MediaPlayer-Android.apk && mv build-FS-MediaPlayer-Android-arm64.apk build/FS-MediaPlayer-Android-arm64.apk
           mv build-FS-MediaPlayer-Android-armv7.apk build/FS-MediaPlayer-Android-armv7.apk
           unzip -l build/FS-MediaPlayer-Android-arm64.apk | grep -E "libtorengine|libvlc" 
@@ -330,6 +331,53 @@ jobs:
             build/FS-MediaPlayer-Android.apk
             build/FS-MediaPlayer-Android-arm64.apk
             build/FS-MediaPlayer-Android-armv7.apk
+
+  # Experimental FS MediaPlayer LT for Android (TorrServer-LT, GPL-3.0):
+  # built only when the workflow is started by hand; never released.
+  android-lt:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Engines
+        env:
+          REQUIRE_NDK: "1"
+        run: |
+          ./scripts/build-engine-android.sh
+          ./scripts/fetch-torrserver-lt-android.sh
+
+      - name: Build APKs
+        run: |
+          V=$(grep -E 'MARKETING_VERSION' project.yml | head -1 | sed -E 's/[^0-9.]//g')
+          IFS=. read -r MA MI PA <<< "$V"
+          gradle -p android assembleLtRelease -PappVersion=$V -PappVersionCode=$((MA * 10000 + MI * 100 + PA))
+          O=android/app/build/outputs/apk/lt/release
+          mkdir -p build
+          cp $O/app-lt-armeabi-v7a-release.apk build/FS-MediaPlayer-LT-Android-armv7.apk
+          cp $O/app-lt-arm64-v8a-release.apk build/FS-MediaPlayer-LT-Android-arm64.apk
+          unzip -l build/FS-MediaPlayer-LT-Android-armv7.apk | grep -E "libtorrserverlt|libtorengine"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FS-MediaPlayer-LT-android
+          path: |
+            build/FS-MediaPlayer-LT-Android-armv7.apk
+            build/FS-MediaPlayer-LT-Android-arm64.apk
 
   android-emulator-test:
     needs: [android]

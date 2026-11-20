@@ -161,6 +161,7 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btnCancel).setOnClickListener { cancelLoading() }
 
         scope.launch { try { TorrentEngine.ensureStarted() } catch (_: Exception) {} }
+        if (BuildConfig.LT_ENGINE) scope.launch { try { TorrServerLT.ensureStarted() } catch (_: Exception) {} }
         showScreen(Screen.HOME)
         handleIntent(intent)
     }
@@ -429,7 +430,7 @@ class MainActivity : Activity() {
         val torrent = currentTorrent ?: return
         val url = TorrentEngine.streamUrl(file) ?: return
         currentFile = file
-        val source = if (file.extension in MediaSource.MATROSKA_EXTENSIONS) MediaSource.Torrent(torrent.infoHash, file.index) else null
+        val source = if (file.extension in MediaSource.MATROSKA_EXTENSIONS) TorrentEngine.subtitleSource(torrent, file) else null
         player.open(Uri.parse(url), file.name, subtitleCandidates(file, torrent), source)
         showScreen(Screen.PLAYER)
         startStatusPolling()

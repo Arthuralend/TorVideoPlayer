@@ -16,11 +16,14 @@ import java.net.URLEncoder
 sealed class MediaSource {
     data class Torrent(val infoHash: String, val fileIndex: Int) : MediaSource()
     data class Local(val path: String) : MediaSource()
+    /** A file on a local streaming server (TorrServer-LT in the LT flavor). */
+    data class Http(val url: String) : MediaSource()
 
     val query: String
         get() = when (this) {
             is Torrent -> "ih=$infoHash&file=$fileIndex"
             is Local -> "path=" + URLEncoder.encode(path, "UTF-8")
+            is Http -> "url=" + URLEncoder.encode(url, "UTF-8")
         }
 
     companion object {
@@ -41,7 +44,13 @@ object TorrentEngine {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        if (BuildConfig.LT_ENGINE) TorrServerLT.init(context)
     }
+
+    /** Where embedded MKV subtitles of a torrent file are read from. */
+    fun subtitleSource(torrent: TorrentInfo, file: TorrentFile): MediaSource? =
+        if (BuildConfig.LT_ENGINE) streamUrl(file)?.let { MediaSource.Http(it) }
+        else MediaSource.Torrent(torrent.infoHash, file.index)
 
     fun downloadsDir(): File =
         if (Prefs.keepDownloads) File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "Downloads")
@@ -83,9 +92,11 @@ object TorrentEngine {
     fun logFile(): File = File(appContext.cacheDir, "engine.log")
 
     /** The last lines of the engine's log, for troubleshooting on devices without adb. */
-    fun logTail(lines: Int = 80): String = try {
-        logFile().readLines().takeLast(lines).joinToString("\n")
-    } catch (_: Exception) { "" }
+    fun logTail(lines: Int = 80): String {
+        fun tail(f: File) = try { f.readLines().takeLast(lines).joinToString("\n") } catch (_: Exception) { "" }
+        if (!BuildConfig.LT_ENGINE) return tail(logFile())
+        return "— TorrServer-LT —\n" + tail(TorrServerLT.logFile()) + "\n\n— torengine —\n" + tail(logFile())
+    }
 
     /**
      * DNS servers of the current network (router, ISP, VPN). Passed to the
@@ -102,6 +113,7 @@ object TorrentEngine {
     } catch (_: Exception) { emptyList() }
 
     fun stop() {
+        if (BuildConfig.LT_ENGINE) TorrServerLT.stop()
         val p = process ?: return
         try {
             // Closing stdin makes the helper shut down and delete temporary files.
@@ -112,21 +124,25 @@ object TorrentEngine {
         baseUrl = null
     }
 
-    fun streamUrl(file: TorrentFile): String? = baseUrl?.let { it + file.streamPath }
+    fun streamUrl(file: TorrentFile): String? =
+        if (BuildConfig.LT_ENGINE) TorrServerLT.streamUrl(file) else baseUrl?.let { it + file.streamPath }
 
     suspend fun add(uri: String): TorrentInfo {
+        if (BuildConfig.LT_ENGINE) return TorrServerLT.add(uri)
         val base = ensureStarted()
         val body = JSONObject().put("uri", uri).toString()
         return TorrentInfo.parse(JSONObject(request("POST", "$base/api/add", body, 600_000)))
     }
 
     suspend fun status(infoHash: String, fileIndex: Int?): TorrentStatus {
+        if (BuildConfig.LT_ENGINE) return TorrServerLT.status(infoHash)
         val base = ensureStarted()
         val q = fileIndex?.let { "?file=$it" } ?: ""
         return TorrentStatus.parse(JSONObject(request("GET", "$base/api/status/$infoHash$q", null, 10_000)))
     }
 
     suspend fun drop(infoHash: String) {
+        if (BuildConfig.LT_ENGINE) { TorrServerLT.drop(infoHash); return }
         val base = baseUrl ?: return
         try { request("POST", "$base/api/drop/$infoHash", "", 10_000) } catch (_: Exception) {}
     }

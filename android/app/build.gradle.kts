@@ -18,6 +18,25 @@ android {
         versionName = appVersion
     }
 
+    buildFeatures { buildConfig = true }
+
+    // "standard": our own engine. "lt": experimental, torrents go through
+    // TorrServer-LT (libtorrent, GPL-3.0; not published in releases), fetched
+    // by scripts/fetch-torrserver-lt-android.sh into src/lt/jniLibs.
+    flavorDimensions += "engine"
+    productFlavors {
+        create("standard") {
+            dimension = "engine"
+            buildConfigField("boolean", "LT_ENGINE", "false")
+        }
+        create("lt") {
+            dimension = "engine"
+            applicationIdSuffix = ".lt"
+            versionNameSuffix = "-LT"
+            buildConfigField("boolean", "LT_ENGINE", "true")
+        }
+    }
+
     signingConfigs {
         // A fixed key kept in the repository so that every build can be
         // installed over the previous one (this is a sideloaded app).

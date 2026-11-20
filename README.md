@@ -141,6 +141,15 @@ xcodebuild -workspace TorVideoPlayer.xcworkspace -scheme FSMediaPlayerLT -config
 
 В GitHub Actions её собирает ручной запуск workflow (Run workflow) — DMG появляется в артефактах как `FS-MediaPlayer-LT-dmg`.
 
+Для Android (телефоны, Mi Box и другие ТВ-приставки на ARM) есть такой же вариант — flavor `lt`, ставится рядом с обычным приложением как «FS MediaPlayer LT»:
+
+```bash
+./scripts/build-engine-android.sh && ./scripts/fetch-torrserver-lt-android.sh
+gradle -p android assembleLtRelease      # → android/app/build/outputs/apk/lt/release/
+```
+
+При ручном запуске workflow APK появляются в артефактах как `FS-MediaPlayer-LT-android`.
+
 ### Windows
 
 Нужны .NET 8 SDK и Go (а для установщика — Inno Setup 6):
