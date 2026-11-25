@@ -33,7 +33,7 @@
 
 1. Скачайте `FS-MediaPlayer.dmg` из [Releases](https://github.com/Arthuralend/TorVideoPlayer/releases) (или из артефактов последней сборки во вкладке [Actions](https://github.com/Arthuralend/TorVideoPlayer/actions)).
 2. Перетащите **FS MediaPlayer** в «Программы».
-3. Приложение не подписано сертификатом Apple, поэтому при первом запуске macOS его заблокирует. Выполните в Терминале один раз:
+3. Если сборка не нотаризована Apple (см. «Подпись и нотаризация» ниже), при первом запуске macOS её заблокирует. Выполните в Терминале один раз:
    ```bash
    xattr -dr com.apple.quarantine "/Applications/FS MediaPlayer.app"
    ```
@@ -128,6 +128,20 @@ cd TorVideoPlayer
 ```
 
 Для разработки: `./scripts/build-engine.sh && xcodegen generate && pod install`, затем откройте `TorVideoPlayer.xcworkspace` в Xcode.
+
+### macOS: подпись и нотаризация
+
+Если в репозитории (Settings → Secrets and variables → Actions) заданы секреты ниже, GitHub Actions подписывает приложение сертификатом Developer ID (hardened runtime), отправляет его и DMG на нотаризацию в Apple и прикрепляет «билет» — такое приложение открывается без предупреждений и без `xattr`. Без секретов сборка, как раньше, подписывается ad-hoc.
+
+| Секрет | Что это |
+|---|---|
+| `MACOS_CERT_P12` | Сертификат «Developer ID Application» с закрытым ключом, экспортированный из «Связки ключей» в .p12 и закодированный в base64: `base64 -i cert.p12 \| pbcopy` |
+| `MACOS_CERT_PASSWORD` | Пароль, заданный при экспорте .p12 |
+| `APPLE_ID` | Apple ID учётной записи разработчика |
+| `APPLE_APP_PASSWORD` | Пароль приложения для этого Apple ID (account.apple.com → «Вход и безопасность» → «Пароли приложений») |
+| `APPLE_TEAM_ID` | Team ID (developer.apple.com → Membership details), 10 символов |
+
+Скрипты: `scripts/macos-sign.sh` (приложение), `scripts/macos-sign-dmg.sh` (DMG), `scripts/macos-notarize.sh` (отправка в Apple).
 
 ### macOS: экспериментальная сборка FS MediaPlayer LT
 

@@ -67,10 +67,18 @@ jobs:
           { grep -E "(^|: )error:|The following build commands failed" -A4 build/xcodebuild.log || true; } | cut -c1-300 | head -60 | while IFS= read -r line; do echo "::error::$line"; done
           test -d build/DerivedData/Build/Products/Release/TorVideoPlayer.app
 
-      - name: Sign (ad-hoc) and smoke-test
+      # Developer ID signing + notarization when the secrets are set
+      # (see README), ad-hoc signing otherwise.
+      - name: Sign, notarize and smoke-test
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           APP=build/DerivedData/Build/Products/Release/TorVideoPlayer.app
-          codesign --force --deep --sign - "$APP"
+          ./scripts/macos-sign.sh "$APP"
           cp -R "$APP" build/TorVideoPlayer.app
           lipo -info build/TorVideoPlayer.app/Contents/MacOS/TorVideoPlayer
           lipo -info build/TorVideoPlayer.app/Contents/MacOS/torengine
@@ -88,7 +96,15 @@ jobs:
           kill $APP_PID || true
 
       - name: Create DMG
-        run: ./scripts/make-dmg.sh build/TorVideoPlayer.app
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ./scripts/make-dmg.sh build/TorVideoPlayer.app
+          ./scripts/macos-sign-dmg.sh build/FS-MediaPlayer.dmg
 
       - name: Report failure details
         if: failure()
@@ -159,9 +175,15 @@ jobs:
           test -d build/DerivedData/Build/Products/Release/FSMediaPlayerLT.app
 
       - name: Sign, smoke-test and pack
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           APP=build/DerivedData/Build/Products/Release/FSMediaPlayerLT.app
-          codesign --force --deep --sign - "$APP"
+          ./scripts/macos-sign.sh "$APP"
           lipo -info "$APP/Contents/MacOS/torrserver-lt"
           # TorrServer-LT must start and answer.
           "$APP/Contents/MacOS/torrserver-lt" --port 18090 --ip 127.0.0.1 --path "$RUNNER_TEMP/ts" &
@@ -178,6 +200,7 @@ jobs:
           cp -R "$APP" "$STAGE/FS MediaPlayer LT.app"
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname "FS MediaPlayer LT" -srcfolder "$STAGE" -ov -format UDZO build/FS-MediaPlayer-LT.dmg
+          ./scripts/macos-sign-dmg.sh build/FS-MediaPlayer-LT.dmg
 
       - name: Upload build log
         if: always()
@@ -500,7 +523,7 @@ jobs:
             FS MediaPlayer (разработчик — FantasticSoftware) — торрент-плеер на базе VLC с двойными субтитрами: смотрите торренты онлайн, не дожидаясь полной загрузки.
 
             ### macOS 13+ (Apple Silicon и Intel)
-            Скачайте `FS-MediaPlayer.dmg`, перетащите приложение в «Программы», затем один раз выполните в Терминале:
+            Скачайте `FS-MediaPlayer.dmg` и перетащите приложение в «Программы». Если macOS не даёт его открыть (сборка без нотаризации Apple), один раз выполните в Терминале:
             ```
             xattr -dr com.apple.quarantine "/Applications/FS MediaPlayer.app"
             ```
